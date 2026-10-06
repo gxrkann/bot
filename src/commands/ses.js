@@ -33,7 +33,14 @@ export default {
       return;
     }
 
-    await interaction.deferReply({ flags: 64 });
+    try {
+      await interaction.deferReply({ flags: 64 });
+    } catch (error) {
+      /* Bazen interaction daha önce acknowledge edilmiş olabiliyor (çift process,
+         hızlı iki komut). deferReply başarısızsa işlem yapılmaz. */
+      if (error.code === 'InteractionAlreadyReplied' || error.code === 40060) return;
+      throw error;
+    }
     const sub = interaction.options.getSubcommand();
     const settings = getGuildSettings(client, interaction.guildId);
 
