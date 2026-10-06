@@ -21,6 +21,7 @@ import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadLocalConfig } from './local-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,8 +61,14 @@ function applyJsonSource() {
 
 applyJsonSource();
 
+/* --- 4. bot.config.json — panel son çaresi ---
+   Ortam değişkeni alanı olmayan paneller için. Nokta içermeyen isim
+   ZIP'e giriyor ve paneller onu atmıyor. */
+const localConfigFile = loadLocalConfig();
+if (localConfigFile) envSource.file = localConfigFile;
+
 /* --- Kaydı: hangi dosyadan okundu? --- */
-for (const name of ['.env', 'env.txt', 'config.local.json']) {
+for (const name of ['.env', 'env.txt', 'config.local.json', 'bot.config.json']) {
   try {
     fs.accessSync(path.join(rootDir, name));
     if (!envSource.file) envSource.file = name;

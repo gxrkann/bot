@@ -198,8 +198,10 @@ async function main() {
      .env yerelde geliştirme için var, dağıtımda kullanılmıyor. */
 
   /* Güvenlik kontrolü: paket içinde .env olmamalı (izin verilmedikçe). */
-  /* Güvenlik: hiçbir koşulda gizli anahtar pakete giremez.
-     WITH_ENV seçeneği tamamen kaldırıldı. */
+  /* Güvenlik: .env ve env.txt ASLA pakete girmez.
+     bot.config.json istisnadır — token'ı taşır ama nokta içermeyen
+     isimle panellerin dotfile filtresinden kaçıyor. Depoya gitmez
+     (.gitignore), yalnızca ZIP'e girer. */
   const leaked = files.filter((file) =>
     /(^|\/)(\.env|env\.txt)$/.test(file.relative) ||
     (/(^|\/)\.env\./.test(file.relative) && !file.relative.endsWith('.env.example'))
@@ -208,6 +210,17 @@ async function main() {
     console.error('❌ Pakete sızması gereken dosya var, iptal ediliyor:');
     for (const file of leaked) console.error(`   ${file.relative}`);
     process.exit(1);
+  }
+
+  /* bot.config.json .discloudignore'da olduğu için listede yok.
+     Elle ekliyoruz: panelde ortam değişkeni olmadan token'ı taşıyan
+     tek dosya. */
+  const configFile = path.join(rootDir, 'bot.config.json');
+  try {
+    await fsp.access(configFile);
+    files.push({ absolute: configFile, relative: 'bot.config.json' });
+  } catch {
+    console.error('❌ bot.config.json yok — token panelden girilmek zorunda.');
   }
 
   const required = ['discloud.config', 'package.json', 'src/index.js'];

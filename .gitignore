@@ -11,6 +11,10 @@ env.txt
 PANEL-ENV.txt
 PANEL-COMMAND.txt
 
+# Panel ZIP'inde token'i tasiyan dosya. Nokta icermedigi icin paneller
+# onu atmior, ama depoya GIRMEMELI.
+bot.config.json
+
 # ===== Bagimliliklar =====
 node_modules/
 .pnp

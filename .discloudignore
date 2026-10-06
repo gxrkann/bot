@@ -21,6 +21,11 @@ out/
 .env.enc
 env.txt
 PANEL-ENV.txt
+PANEL-COMMAND.txt
+
+# NOT: bot.config.json BURADA DEĞİL. O ZIP'e giriyor; paneller nokta
+# dosyalarını atıyor ama bu dosya nokta içermiyor. Depoya gitmez
+# (.gitignore), yalnızca dağıtım paketinde.
 
 # Çalışma zamanı verisi — sunucuya özel, her yere gönderilmemeli
 data/
