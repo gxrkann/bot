@@ -346,17 +346,16 @@ try {
   console.log('\n=== 12. Kalıcılık ===');
   {
     const fs = await import('node:fs/promises');
-    const path = await import('node:path');
-    const settingsPath = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')), 'x');
-    void settingsPath;
 
     await saveGuildSettings(client, guild.id, getGuildSettings(client, guild.id));
     await new Promise((r) => setTimeout(r, 400));
 
-    const { flushPendingWrites } = await import('../src/store.js');
+    /* store.js diske nereden yazıyor? Doğrudan oradan soralım; testin
+       çalıştığı klasörü tahmin etmeye çalışmak yol taşındığında bozuluyordu. */
+    const { flushPendingWrites, settingsFile } = await import('../src/store.js');
     await flushPendingWrites();
 
-    const raw = await fs.readFile('C:/Users/gxrkan/OneDrive/Desktop/guard botu/data/settings.json', 'utf8');
+    const raw = await fs.readFile(settingsFile, 'utf8');
     const parsed = JSON.parse(raw);
     check('JSON geçerli (yarım yazılmamış)', typeof parsed === 'object');
     check('sunucu verisi diske yazıldı', Boolean(parsed[guild.id]));

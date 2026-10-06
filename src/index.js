@@ -14,6 +14,11 @@ import { createDashboard } from './dashboard/server.js';
 import { startCleanupTimer } from './dashboard/auth.js';
 import { completeVerification } from './verification.js';
 import { startBackupScheduler } from './backup.js';
+import { printBanner, VERSION } from './version.js';
+
+/* Sürüm damgası, her şeyden önce basılır. Panelde eski kod çalışıyorsa
+   bu satır hiç görünmez — sorunun nerede olduğunu tek bakışta belli eder. */
+printBanner();
 /* voice.js, @discordjs/voice paketini kendi içinde import ediyor. O paket
    kurulu değilse (panelde npm install eski package.json ile çalışmış
    olabilir) statik import botu hiç açılmadan öldürürdü.
@@ -474,29 +479,41 @@ function reportEnv() {
 async function boot() {
   reportEnv();
 
-  if (!config.token) {
-    /* Panel ortamı .env dosyası olmadan çalışır (dosya .gitignore'da).
-       Bu yüzden hatayı "dosyada eksik" diye değil, "ortam değişkeninde
-       tanımlı değil" diye bildiriyoruz — yoksa kullanıcı panele bakıp
-       dosya arıyor ve zaman kaybediyor. */
-    const hasEnvFile = existsSync(path.join(__dirname, '..', '.env'));
+  /* Panel ortamı olup olmadığını ayırt et. .env yoksa kod kesinlikle
+     panelde çalışıyor demektir ve tek çözüm ortam değişkeni girmektir. */
+  const envFile = path.join(__dirname, '..', '.env');
+  const hasEnvFile = existsSync(envFile);
+  const onPanel = !hasEnvFile;
 
+  if (!config.token) {
     console.error('');
-    console.error('❌ DISCORD_TOKEN ortam değişkeni tanımlı değil.');
+    console.error(`❌ DISCORD_TOKEN tanımlı değil — Guard Bot v${VERSION}`);
     console.error('');
+
     if (hasEnvFile) {
       console.error('   .env dosyası var ama içinde DISCORD_TOKEN yok veya boş.');
-      console.error('   Dosya: ' + path.join(__dirname, '..', '.env'));
-    } else {
-      console.error('   Bu bir .env dosyası değil — panel ortamı.');
-      console.error('   .gitignore .env dosyasını depoya koymaz, panelde bulamazsın.');
-      console.error('   Panel > Environment Variables bölümüne şu değerleri ekle:');
+      console.error(`   Dosya: ${envFile}`);
+      console.error('   Satır şu şekilde olmalı (tırnak/boşluk yok):');
+      console.error('     DISCORD_TOKEN=buraya_tokenin');
+    } else if (onPanel) {
+      console.error('   Konum: panel (çalışma dizininde .env dosyası yok).');
+      console.error('   .gitignore .env dosyasını depoya koymaz; ZIP\'e de girmiyor.');
+      console.error('   Bu yüzden panelde Environment Variables bölümünden girilmeli.');
+      console.error('');
+      console.error('   Ayrıca başlangıç komutun doğru mu? Şu olmalı:');
+      console.error('     npm install && node src/index.js');
+      console.error('');
+      console.error('   Emin değilsen .env içeren paketi yükle (dist/guard-bot-with-env.zip),');
+      console.error('   o zaman panelden hiçbir şey girmen gerekmez.');
     }
+
     console.error('');
-    console.error('   DISCORD_TOKEN=...');
-    console.error('   CLIENT_ID=...');
-    console.error('   GUILD_ID=...');
-    console.error('   OWNER_ID=...');
+    console.error('   Değerler:');
+    console.error('     DISCORD_TOKEN      = bot token\'ın');
+    console.error('     CLIENT_ID          = 1556800308422643802');
+    console.error('     GUILD_ID           = 1555388276779782214');
+    console.error('     OWNER_ID           = 281867375626813470');
+    console.error('     DASHBOARD_PASSWORD = gZ7Q2pLZ8oav');
     console.error('');
     process.exit(1);
   }
