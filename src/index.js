@@ -351,10 +351,22 @@ async function joinConfiguredVoiceChannels() {
     const settings = getGuildSettings(client, guild.id);
     if (!settings.voice?.enabled || !settings.voice.channelId) continue;
 
-    const result = await voice.joinVoiceChannel(client, guild, settings.voice.channelId, {
-      selfMute: settings.voice.selfMute,
-      selfDeaf: settings.voice.selfDeaf
-    }).catch(() => ({ ok: false, error: 'bilinmiyor' }));
+    /* signalling durumunda takılan bağlantılar bazen ikinci denemede
+       başarılı olur (UDP el sıkışması ilk denemede düşmüş olabilir).
+       Bu yüzden iki kez deniyoruz. */
+    let result;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      result = await voice.joinVoiceChannel(client, guild, settings.voice.channelId, {
+        selfMute: settings.voice.selfMute,
+        selfDeaf: settings.voice.selfDeaf
+      }).catch(() => ({ ok: false, error: 'bilinmiyor' }));
+
+      if (result.ok) break;
+      if (attempt < 2) {
+        console.log(`🔁 ${guild.name}: ses bağlantısı ${result.status || 'hata'} sonrası tekrar deneniyor...`);
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      }
+    }
 
     if (result.ok) {
       const name = guild.channels.cache.get(settings.voice.channelId)?.name || settings.voice.channelId;

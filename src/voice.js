@@ -33,7 +33,7 @@ const connections = new Map();
  * @param {number} timeoutMs
  * @returns {Promise<boolean>} hazırsa true, zaman aşımı veya hata durumunda false
  */
-function waitForReady(connection, timeoutMs = 15000) {
+function waitForReady(connection, timeoutMs = 20000) {
   return new Promise((resolve) => {
     if (!connection || typeof connection.on !== 'function') {
       resolve(false);
@@ -50,6 +50,11 @@ function waitForReady(connection, timeoutMs = 15000) {
     };
 
     const onChange = (oldState, newState) => {
+      const oldStatus = oldState?.status || 'bilinmiyor';
+      const newStatus = newState?.status || 'bilinmiyor';
+      if (oldStatus !== newStatus) {
+        console.log(`🔊 Ses durumu: ${oldStatus} → ${newStatus}`);
+      }
       if (newState?.status === VoiceConnectionStatus.Ready) finish(true);
       if (newState?.status === VoiceConnectionStatus.Destroyed) finish(false);
       if (newState?.status === VoiceConnectionStatus.Signalling && oldState?.status === VoiceConnectionStatus.Disconnected) {
@@ -58,7 +63,14 @@ function waitForReady(connection, timeoutMs = 15000) {
       }
     };
 
-    const timer = setTimeout(() => finish(false), timeoutMs);
+    const timer = setTimeout(() => {
+      console.warn(`⚠️ Ses bağlantısı ${timeoutMs / 1000} sn içinde kurulamadı. Son durum: signalling.`);
+      console.warn('   Olası nedenler:');
+      console.warn('   1. Discord Portal → Bot → Privileged Gateway Intents → Voice States açık mı?');
+      console.warn('   2. Çalıştırıdığın platform UDP (ses) trafiğini engelliyor olabilir (ücretsiz VPS/Render).');
+      console.warn('   3. Kanal limiti dolu veya botun Connect izni yok.');
+      finish(false);
+    }, timeoutMs);
 
     /* Zaten hazırsa gecikmeden dön. */
     if (connection.state?.status === VoiceConnectionStatus.Ready) {
