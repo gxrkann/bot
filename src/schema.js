@@ -302,6 +302,15 @@ export const SECTIONS = [
 
   /* ---------------------------------------------------------- */
   {
+    id: 'voice',
+    title: 'Ses',
+    icon: '🔊',
+    description: 'Bot bir ses kanalında sabit bekler. Kanalların doluluk durumu ve bağlantı ayarları.',
+    readOnly: true
+  },
+
+  /* ---------------------------------------------------------- */
+  {
     id: 'actions',
     title: 'Acil Durum',
     icon: '🚨',

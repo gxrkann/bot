@@ -170,6 +170,18 @@ export function createDefaultSettings() {
       permitRoles: []
     },
 
+    /* --- Ses (bot bir kanalda sabit bekler) ---
+       Not: Discord botları ses akışına erişemez. Bot kanalda görünür
+       olur ve kimin nerede olduğunu biliriz, ama konuşmaları duyamaz
+       veya kaydedemez. Bu yüzden selfMute/selfDeaf varsayılan açık. */
+    voice: {
+      enabled: false,
+      channelId: '',
+      selfMute: true,
+      selfDeaf: true,
+      autoRejoin: true
+    },
+
     /* --- Eski ayarlar (uyumluluk) --- */
     antiSpam: true,
     antiInvite: true,
@@ -220,6 +232,7 @@ export function withDefaults(saved) {
 
   merged.verification = { ...base.verification, ...(saved.verification || {}) };
   merged.backups = { ...base.backups, ...(saved.backups || {}) };
+  merged.voice = { ...base.voice, ...(saved.voice || {}) };
 
   merged.whitelist = { ...base.whitelist, ...(saved.whitelist || {}) };
   for (const key of Object.keys(base.whitelist)) {

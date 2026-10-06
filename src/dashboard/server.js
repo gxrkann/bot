@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import { SECTIONS, getPath, setPath } from '../schema.js';
 import { listBackups } from '../store.js';
+import { PermissionFlagsBits } from 'discord.js';
 import * as views from './views.js';
 import {
   getOAuthConfig, getAllowedIds, isAllowed, createState, consumeState,
@@ -213,6 +214,28 @@ async function handleRequest(client, req, res) {
         });
         break;
       }
+      case 'voice': {
+        const voice = await import('../voice.js');
+        const channels = voice.listVoiceChannels(guild, guild.members?.me);
+        const missing = [];
+
+        /* guild.members.me her zaman dolu değil (yetki yetersizse ya da
+           cache eksikse). permissions olmayan durumda kontrol atlanıyor,
+           aksi halde sayfa 500 verirdi. */
+        const perms = guild.members?.me?.permissions;
+        if (perms?.has) {
+          if (!perms.has(PermissionFlagsBits.Connect)) missing.push('Bağlan (Connect)');
+          if (!perms.has(PermissionFlagsBits.MoveMembers)) missing.push('Üyeleri Taşı');
+        }
+
+        body = views.voicePage({
+          section, settings,
+          state: voice.getVoiceState(guildId),
+          channels,
+          permissions: { missing }
+        });
+        break;
+      }
       case 'actions': {
         const { getQuarantined } = await import('../anti-nuke.js');
         body = views.actionsPage({
@@ -245,6 +268,11 @@ async function handleRequest(client, req, res) {
       flash
     });
     return send(res, 200, html, flash ? clearFlash : {});
+  }
+
+  /* --- Ses işlemleri --- */
+  if (url.pathname.startsWith('/api/voice/') && req.method === 'POST') {
+    return handleVoiceAction(client, req, res, url);
   }
 
   /* --- Profil işlemleri (dashboard'dan avatar / banner / oyun adı) --- */
@@ -530,6 +558,82 @@ function applyForm(section, settings, form) {
 /* ------------------------------------------------------------------ *
  * Anlık işlemler
  * ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ * Ses işlemleri
+ * ------------------------------------------------------------------ */
+
+/**
+ * Botu ses kanalına sokma / çıkarma / ayar kaydetme.
+ *
+ * Discord botları ses akışına erişemez; burada yalnızca kanalda görünür
+ * olma ve kanal nüfusu bilgisi sağlanır.
+ */
+async function handleVoiceAction(client, req, res, url) {
+  const action = url.pathname.replace('/api/voice/', '');
+  const raw = await readBody(req);
+  const form = new URLSearchParams(raw);
+
+  const requested = form.get('guild');
+  const guild = (requested && client.guilds.cache.get(requested)) || client.guilds.cache.first();
+  const guildId = guild?.id;
+
+  const back = (message, type = 'success') => send(res, 302, '', {
+    'Set-Cookie': flashCookie(type, message),
+    Location: `/s/voice?guild=${guildId}`
+  });
+
+  if (!guildId) return back('Bot hiçbir sunucuda değil.', 'error');
+
+  const voice = await import('../voice.js');
+  const { getGuildSettings, saveGuildSettings } = await import('../guard-utils.js');
+  const settings = getGuildSettings(client, guildId);
+
+  if (action === 'join') {
+    const channelId = voice.resolveVoiceChannelId(guild, form.get('channelId'));
+    if (!channelId) return back('Ses kanalı seçilmedi.', 'error');
+
+    const result = await voice.joinVoiceChannel(guild, channelId, {
+      selfMute: settings.voice.selfMute,
+      selfDeaf: settings.voice.selfDeaf
+    });
+
+    if (!result.ok) return back(result.error, 'error');
+
+    settings.voice.enabled = true;
+    settings.voice.channelId = channelId;
+    await saveGuildSettings(client, guildId, settings);
+
+    const channelName = guild.channels.cache.get(channelId)?.name || channelId;
+    return back(`Bot "#${channelName}" kanalına katıldı.`);
+  }
+
+  if (action === 'leave') {
+    await voice.leaveVoiceChannel(guild, 'panel');
+    settings.voice.enabled = false;
+    await saveGuildSettings(client, guildId, settings);
+    return back('Bot ses kanalından çıktı.');
+  }
+
+  if (action === 'settings') {
+    settings.voice.selfMute = form.get('voice.selfMute') === 'on';
+    settings.voice.selfDeaf = form.get('voice.selfDeaf') === 'on';
+    settings.voice.autoRejoin = form.get('voice.autoRejoin') === 'on';
+    await saveGuildSettings(client, guildId, settings);
+
+    /* Ayarlar bağlıyken yeniden bağlan (sessiz değişiklikler uygulansın). */
+    if (settings.voice.enabled && settings.voice.channelId) {
+      await voice.joinVoiceChannel(guild, settings.voice.channelId, {
+        selfMute: settings.voice.selfMute,
+        selfDeaf: settings.voice.selfDeaf
+      }).catch(() => null);
+    }
+
+    return back('Ses ayarları kaydedildi.');
+  }
+
+  return back('Bilinmeyen işlem.', 'error');
+}
 
 /* ------------------------------------------------------------------ *
  * Profil işlemleri

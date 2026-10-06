@@ -669,6 +669,107 @@ export function profilePage({ section, profile, info, limits }) {
     </div>`;
 }
 
+export function voicePage({ section, settings, state, channels, permissions }) {
+  const connected = Boolean(state);
+  const currentName = channels.find((c) => c.id === state?.channelId)?.name || state?.channelId;
+
+  return `
+    ${sectionHeader(section)}
+
+    <div class="alert alert-info">
+      <strong>Discord botları ses akışına erişemez.</strong>
+      Bot kanalda görünür olur ve kimin hangi kanalda olduğunu biliriz,
+      ancak konuşmaları <em>duyamaz</em>, kaydedemez veya anlayamaz.
+      Bu yüzden bot kendini susturur ve sağırlaştırır. Koruma için
+      kanal nüfusu ve hareketleri izlenebilir, ses içeriği okunamaz.
+    </div>
+
+    ${permissions.missing.length ? `
+      <div class="alert alert-warn">
+        <strong>Eksik yetkiler:</strong> ${permissions.missing.join(', ')}
+        <p>Bot rolünü sunucuda yukarı taşı veya izinleri aç.</p>
+      </div>` : ''}
+
+    <!-- Durum -->
+    <div class="card voice-status-card">
+      <h2>${connected ? '🟢 Kanalda' : '🔴 Kanalda değil'}</h2>
+      ${connected ? `
+        <div class="stats-grid">
+          <div><span>Kanal</span><strong>${esc(currentName)}</strong></div>
+          <div><span>Katılma</span><strong>${new Date(state.joinedAt).toLocaleTimeString('tr-TR')}</strong></div>
+          <div><span>Yeniden bağlanma</span><strong>${state.reconnects || 0}</strong></div>
+          <div><span>Bağlantı</span><strong>${esc(state.connection?.state?.status || 'Bilinmiyor')}</strong></div>
+        </div>`
+      : '<p class="muted">Bot şu anda hiçbir ses kanalında değil.</p>'}
+    </div>
+
+    <div class="grid-2">
+      <!-- Kanal seçimi -->
+      <div class="card">
+        <h2>Kanal Seçimi</h2>
+        ${channels.length ? `
+          <form method="post" action="/api/voice/join">
+            <div class="voice-list">
+              ${channels.map((channel) => `
+                <label class="voice-item">
+                  <input type="radio" name="channelId" value="${esc(channel.id)}"
+                         ${settings.voice.channelId === channel.id ? 'checked' : ''}>
+                  <span class="voice-name">#${esc(channel.name)}</span>
+                  ${channel.members ? `<span class="pill pill-off">${channel.members} kişi</span>` : ''}
+                  ${channel.full ? '<span class="pill pill-on">dolu</span>' : ''}
+                </label>`).join('')}
+            </div>
+            <div class="card-footer">
+              <button class="btn btn-primary">Seçili Kanala Gir</button>
+            </div>
+          </form>`
+        : '<p class="muted">Bu sunucuda ses kanalı yok.</p>'}
+      </div>
+
+      <!-- Ayarlar -->
+      <div class="card">
+        <h2>Bağlantı Ayarları</h2>
+        ${row('Kendini sustur', 'Bot mikrofonu açmaz. Konuşma duyulmaz.',
+          toggle('voice.selfMute', settings.voice.selfMute))}
+        ${row('Kendini sağırlaştır', 'Bot sesi duymaz.',
+          toggle('voice.selfDeaf', settings.voice.selfDeaf))}
+        ${row('Otomatik geri bağlan', 'Kanal dışına itilirse geri döner.',
+          toggle('voice.autoRejoin', settings.voice.autoRejoin))}
+
+        <div class="card-footer">
+          <form method="post" action="/api/voice/settings" class="inline-form">
+            <button class="btn btn-primary">Ayarları Kaydet</button>
+          </form>
+          <form method="post" action="/api/voice/leave" class="inline-form" data-confirm="Bot ses kanalından çıksın mı?">
+            <button class="btn btn-danger" ${connected ? '' : 'disabled'}>Kanaldan Çık</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kanal nüfusu -->
+    ${channels.length ? `
+      <div class="card">
+        <h2>Kanal Durumu</h2>
+        <table class="table">
+          <thead><tr><th>Kanal</th><th>Kişi</th><th>Limit</th><th>Doluluk</th></tr></thead>
+          <tbody>
+            ${channels.map((channel) => {
+              const pct = channel.userLimit
+                ? Math.min(100, Math.round((channel.members / channel.userLimit) * 100))
+                : null;
+              return `<tr>
+                <td>#${esc(channel.name)}</td>
+                <td>${channel.members}</td>
+                <td>${channel.userLimit || '∞'}</td>
+                <td>${pct === null ? '—' : pct + ' %'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>` : ''}`;
+}
+
 export function notFoundPage() {
   return `<h1>Sayfa bulunamadı</h1><p><a href="/">Ana sayfaya dön</a></p>`;
 }

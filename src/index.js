@@ -13,6 +13,9 @@ import { createDashboard } from './dashboard/server.js';
 import { startCleanupTimer } from './dashboard/auth.js';
 import { completeVerification } from './verification.js';
 import { startBackupScheduler } from './backup.js';
+import {
+  handleVoiceStateUpdate, handleChannelDelete, joinVoiceChannel
+} from './voice.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +29,10 @@ const __dirname = path.dirname(__filename);
 const intents = [GatewayIntentBits.Guilds];
 
 if (process.env.ENABLE_GUILD_MEMBERS_INTENT !== 'false') intents.push(GatewayIntentBits.GuildMembers);
+
+/* Ses kanalında bekleyebilmek ve kanal hareketlerini görebilmek için
+   gerekli. Kapalıysa bot kanala giremez. */
+if (process.env.ENABLE_VOICE_STATES_INTENT !== 'false') intents.push(GatewayIntentBits.GuildVoiceStates);
 if (process.env.ENABLE_MESSAGE_CONTENT_INTENT !== 'false') intents.push(GatewayIntentBits.MessageContent);
 
 intents.push(
@@ -157,6 +164,8 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   await applySavedProfile();
+
+  await joinConfiguredVoiceChannels();
 
   await readyClient.user.setPresence({
     status: 'dnd'
@@ -296,6 +305,38 @@ async function handleButton(interaction) {
 client.on(Events.GuildDelete, async (guild) => {
   await deleteGuildSettings(client, guild.id).catch(() => null);
 });
+
+/* ------------------------------------------------------------------ *
+ * Ses olayları
+ * ------------------------------------------------------------------ */
+
+client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+  handleVoiceStateUpdate(oldState, newState);
+});
+
+client.on(Events.ChannelDelete, (channel) => {
+  handleChannelDelete(channel);
+});
+
+/** Bot açılırken kayıtlı ses kanalına katılır. */
+async function joinConfiguredVoiceChannels() {
+  for (const guild of client.guilds.cache.values()) {
+    const settings = getGuildSettings(client, guild.id);
+    if (!settings.voice?.enabled || !settings.voice.channelId) continue;
+
+    const result = await joinVoiceChannel(guild, settings.voice.channelId, {
+      selfMute: settings.voice.selfMute,
+      selfDeaf: settings.voice.selfDeaf
+    }).catch(() => ({ ok: false, error: 'bilinmiyor' }));
+
+    if (result.ok) {
+      const name = guild.channels.cache.get(settings.voice.channelId)?.name || settings.voice.channelId;
+      console.log(`🔊 ${guild.name}: ses kanalına katıldı (#${name})`);
+    } else {
+      console.warn(`⚠️ ${guild.name}: ses kanalına katılamadı — ${result.error}`);
+    }
+  }
+}
 
 /* ------------------------------------------------------------------ *
  * Dashboard
