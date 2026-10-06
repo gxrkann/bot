@@ -14,9 +14,26 @@ import { createDashboard } from './dashboard/server.js';
 import { startCleanupTimer } from './dashboard/auth.js';
 import { completeVerification } from './verification.js';
 import { startBackupScheduler } from './backup.js';
-import {
-  handleVoiceStateUpdate, handleChannelDelete, joinVoiceChannel
-} from './voice.js';
+/* voice.js, @discordjs/voice paketini kendi içinde import ediyor. O paket
+   kurulu değilse (panelde npm install eski package.json ile çalışmış
+   olabilir) statik import botu hiç açılmadan öldürürdü.
+
+   Bu yüzden ses modülü gerektiğinde dinamik yükleniyor; eksik olsa bile
+   bot çalışmaya devam eder, sadece ses özelliği devre dışı kalır. */
+let voiceModule = null;
+let voiceLoadError = null;
+
+async function loadVoice() {
+  if (voiceModule || voiceLoadError) return voiceModule;
+  try {
+    voiceModule = await import('./voice.js');
+  } catch (error) {
+    voiceLoadError = error;
+    console.warn('⚠️ Ses özelliği yüklenemedi:', error.message);
+    console.warn('   @discordjs/voice kurulu değil. Terminalde çalıştır: npm install @discordjs/voice');
+  }
+  return voiceModule;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -311,21 +328,25 @@ client.on(Events.GuildDelete, async (guild) => {
  * Ses olayları
  * ------------------------------------------------------------------ */
 
-client.on(Events.VoiceStateUpdate, (oldState, newState) => {
-  handleVoiceStateUpdate(client, oldState, newState);
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  const voice = await loadVoice();
+  voice?.handleVoiceStateUpdate?.(client, oldState, newState);
 });
 
 client.on(Events.ChannelDelete, (channel) => {
-  handleChannelDelete(channel);
+  voiceModule?.handleChannelDelete?.(channel);
 });
 
 /** Bot açılırken kayıtlı ses kanalına katılır. */
 async function joinConfiguredVoiceChannels() {
+  const voice = await loadVoice();
+  if (!voice) return;
+
   for (const guild of client.guilds.cache.values()) {
     const settings = getGuildSettings(client, guild.id);
     if (!settings.voice?.enabled || !settings.voice.channelId) continue;
 
-    const result = await joinVoiceChannel(client, guild, settings.voice.channelId, {
+    const result = await voice.joinVoiceChannel(client, guild, settings.voice.channelId, {
       selfMute: settings.voice.selfMute,
       selfDeaf: settings.voice.selfDeaf
     }).catch(() => ({ ok: false, error: 'bilinmiyor' }));

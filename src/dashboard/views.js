@@ -770,6 +770,11 @@ export function voicePage({ section, settings, state, channels, permissions }) {
       </div>` : ''}`;
 }
 
+/** Yalnızca bölüm başlığı (hata sayfaları için). */
+export function sectionHeaderOnly(section) {
+  return sectionHeader(section);
+}
+
 export function notFoundPage() {
   return `<h1>Sayfa bulunamadı</h1><p><a href="/">Ana sayfaya dön</a></p>`;
 }

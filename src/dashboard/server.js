@@ -21,6 +21,9 @@ import { fileURLToPath } from 'node:url';
 import { SECTIONS, getPath, setPath } from '../schema.js';
 import { listBackups } from '../store.js';
 import { PermissionFlagsBits } from 'discord.js';
+import { escapeHtml as escapeHtmlValue } from './views.js';
+
+const escapeHtml = escapeHtmlValue;
 import * as views from './views.js';
 import {
   getOAuthConfig, getAllowedIds, isAllowed, createState, consumeState,
@@ -215,7 +218,29 @@ async function handleRequest(client, req, res) {
         break;
       }
       case 'voice': {
-        const voice = await import('../voice.js');
+        /* voice.js @discordjs/voice'u import eder; paket eksikse sayfa
+           500 vermesin diye hata durumunda da render ediyoruz. */
+        let voice = null;
+        let voiceError = null;
+        try {
+          voice = await import('../voice.js');
+        } catch (error) {
+          voiceError = error.message;
+        }
+
+        if (!voice) {
+          body = [
+            views.sectionHeaderOnly(section),
+            '<div class="alert alert-warn">',
+            '<strong>Ses özelliği yüklenemedi.</strong>',
+            `<p>${escapeHtml(voiceError || 'Bilinmeyen hata')}</p>`,
+            '<p>@discordjs/voice paketi kurulu değil. Terminalde çalıştır:</p>',
+            '<pre>npm install @discordjs/voice</pre>',
+            '</div>'
+          ].join('');
+          break;
+        }
+
         const channels = voice.listVoiceChannels(guild, guild.members?.me);
         const missing = [];
 
