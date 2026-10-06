@@ -390,18 +390,56 @@ function startDashboard() {
   server.listen(port, host, () => {
     if (host === '0.0.0.0') {
       console.log(`🌐 Dashboard ${port} portunda dinliyor (0.0.0.0)`);
-      console.log(`   Panelden atadığı subdomain: ${process.env.DASHBOARD_PUBLIC_URL || '(panelden bak)'}`);
+      console.log(`   Panel adresi: ${process.env.DASHBOARD_PUBLIC_URL || '(Render otomatik verir)'}`);
     } else {
       console.log(`🌐 Dashboard: http://localhost:${port}`);
     }
+
+    /* Render gibi uykuya düşen ortamlarda gerekir. */
+    startKeepAlive(port);
   });
 
   startCleanupTimer();
 }
 
-/* ------------------------------------------------------------------ *
- * Başlat
- * ------------------------------------------------------------------ */
+/**
+ * Render ücretsiz plan koruması.
+ *
+ * Render, 15 dakika GELEN trafik olmayınca ücretsiz servisi kapatıyor
+ * (spins down). Discord bağlantısı giden trafik olduğu için bunu
+ * engellemiyor — bot koruma sistemleri devrede olmasına rağmen
+ * Discord'dan düşüyor.
+ *
+ * Çözüm: bot periyodik olarak kendi /ping ucunu çağırıyor. Bu gelen
+ * trafik sayılıyor, servis uyanık kalıyor.
+ *
+ * Aralık 10 dakika: 15 dakikalık eşiğin altında, ama Discord'un
+ * bağlantı zaman aşımına (yaklaşık 1-2 dakika) takılmayacak kadar
+ * sık değil. Aslında amacımız Discord bağlantısını canlı tutmak;
+ * /ping çağrısı aynı zamanda botun ayakta olduğunu da doğruluyor.
+ */
+function startKeepAlive(port) {
+  const url = `http://127.0.0.1:${port}/ping`;
+
+  const ping = async () => {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!response.ok) console.warn(`⚠️ Keep-alive ${response.status} döndü`);
+    } catch {
+      // Zaman aşımı normaldir (bot kendi event loop'unda meşgulken).
+    }
+  };
+
+  // İlk ping biraz gecikmeli: sunucu tamamen ayağa kalkmadan istek atmamalı.
+  setTimeout(ping, 15000);
+  const timer = setInterval(ping, 10 * 60 * 1000);
+  if (timer.unref) timer.unref();
+
+  console.log('⏱️  Keep-alive açık (10 dakikada bir) — ücretsiz plan uykuya düşmez');
+}
 
 /* Panel ortamında teşhis: hangi değişkenler geldi?
    DEĞERLERİ YAZDIRILMAZ, sadece isimleri ve dolu/boş durumu.

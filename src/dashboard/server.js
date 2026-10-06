@@ -125,6 +125,15 @@ async function handleRequest(client, req, res) {
     return send(res, 302, '', { 'Set-Cookie': clearCookie(), Location: '/giris' });
   }
 
+  /* --- Sağlık ucu ---
+     Render ücretsiz plan 15 dakika gelen trafik olmayınca servisi
+     kapatıyor. Bot Discord'a WebSocket ile bağlanır; bu Render'a GİDEN
+     trafiktir ve sayılmaz. Bot periyodik olarak kendi kendine bu ucu
+     çağırıyor (GELEN trafik) — servisin uykuya dalmasını engelliyor. */
+  if (url.pathname === '/ping') {
+    return send(res, 200, 'pong', { 'Content-Type': 'text/plain; charset=utf-8' });
+  }
+
   /* --- Yetkilendirme --- */
   const session = getSession(cookies.guard_session);
   if (!session) {
