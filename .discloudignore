@@ -1,0 +1,38 @@
+# Discloud'a gönderilecek paketin dışında tutulacak dosyalar.
+# node_modules Discloud tarafından kurulur, göndermeye gerek yok ve
+# yerel kurulumunuzdan (Windows) platforma uymaz.
+
+node_modules/
+npm-debug.log*
+
+# Gizli anahtarlar — ASLA gönderme
+.env
+.env.*
+!.env.example
+.env.enc
+
+# Çalışma zamanı verisi — sunucuya özel, her yere gönderilmemeli
+data/
+
+# Testler ve araçlar (çalışma için gerekli değil)
+test/
+scripts/
+
+# Sürüm kontrolü ve editör dosyaları
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Geçici dosyalar
+*.tmp
+*.bak
+*.log
+
+# NOT: package-lock.json BILINCLI OLARAK GONDERILIYOR.
+# Sürüm sabitlensin diye Discloud da aynı bağımlılık sürümlerini kursun.
+
