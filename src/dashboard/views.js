@@ -604,7 +604,7 @@ export function profilePage({ section, profile, info, limits }) {
         <h2>Profil Fotoğrafı (PP)</h2>
         <p class="muted">Discord en az 128x128 istiyor, 512x512 önerilir. Maksimum ${Math.round(limits.avatarKb)} KB.</p>
         <form method="post" action="/api/profile/avatar">
-          <input type="file" name="gorsel" accept="image/png,image/jpeg,image/gif" data-image-input="avatarData" required>
+          <input type="file" name="gorsel" accept="image/png,image/jpeg,image/gif,image/webp" data-image-input="avatarData" required>
           <input type="hidden" name="avatarData">
           <div class="upload-preview"></div>
           <div class="form-actions">
@@ -621,7 +621,7 @@ export function profilePage({ section, profile, info, limits }) {
         <h2>Banner</h2>
         <p class="muted">Discord en az 600x240 istiyor, 1200x480 önerilir. Maksimum ${limits.bannerMb} MB.</p>
         <form method="post" action="/api/profile/banner">
-          <input type="file" name="gorsel" accept="image/png,image/jpeg,image/gif" data-image-input="bannerData" required>
+          <input type="file" name="gorsel" accept="image/png,image/jpeg,image/gif,image/webp" data-image-input="bannerData" required>
           <input type="hidden" name="bannerData">
           <div class="upload-preview"></div>
           <div class="form-actions">
@@ -673,7 +673,7 @@ export function notFoundPage() {
   return `<h1>Sayfa bulunamadı</h1><p><a href="/">Ana sayfaya dön</a></p>`;
 }
 
-export function loginPage({ error, hasDiscordLink, notes }) {
+export function loginPage({ error, hasDiscordLink, notes, passwordLogin }) {
   const noteHtml = (notes || []).length
     ? `<div class="alert alert-warn">
          ${notes.map((note, index) =>
@@ -683,6 +683,26 @@ export function loginPage({ error, hasDiscordLink, notes }) {
          ).join('')}
        </div>`
     : '';
+
+  const passwordForm = passwordLogin
+    ? [
+      '<form method="post" action="/auth/password" class="password-form">',
+      '<input type="password" name="password" placeholder="Panel şifresi"',
+      'autocomplete="current-password" required autofocus>',
+      '<button class="btn btn-primary btn-block btn-lg">Giriş Yap</button>',
+      '</form>',
+      hasDiscordLink ? '<div class="login-divider"><span>veya</span></div>' : ''
+    ].join('')
+    : '';
+
+  const discordButton = hasDiscordLink
+    ? '<a class="btn btn-ghost btn-block" href="/auth/login">Discord ile Giriş Yap</a>'
+    : [
+      '<div class="alert alert-warn">',
+      '<strong>Panel şifresi tanımlı değil.</strong>',
+      '<p>.env dosyasına <code>DASHBOARD_PASSWORD</code> ekle (en az 8 karakter).</p>',
+      '</div>'
+    ].join('');
 
   return `<!DOCTYPE html>
 <html lang="tr">
@@ -700,16 +720,8 @@ export function loginPage({ error, hasDiscordLink, notes }) {
     </div>
     ${error ? `<div class="flash flash-error">${esc(error)}</div>` : ''}
     ${noteHtml}
-    ${hasDiscordLink
-      ? '<a class="btn btn-primary btn-block btn-lg" href="/auth/login">Discord ile Giriş Yap</a>'
-      : `<div class="alert alert-warn">
-           <strong>Yapılandırma eksik.</strong>
-           <p>.env dosyasına şu değerleri ekle:</p>
-           <pre>DASHBOARD_CLIENT_ID=
-DASHBOARD_CLIENT_SECRET=
-DASHBOARD_REDIRECT_URI=
-DASHBOARD_ALLOWED_IDS=</pre>
-         </div>`}
+    ${passwordForm}
+    ${discordButton}
   </div>
 </body>
 </html>`;

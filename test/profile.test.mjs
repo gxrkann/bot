@@ -65,6 +65,110 @@ console.log('\n=== 4. Geçersiz veri ===');
   check('kısa veri null döner', readImageSize(Buffer.alloc(10)) === null);
 }
 
+console.log('\n=== 4b. WebP boyut okuma ===');
+{
+  /* RIFF konteyneri: "RIFF" + boyut + "WEBP" + bloklar */
+  function riff(...chunks) {
+    const body = Buffer.concat(chunks);
+    const head = Buffer.alloc(12);
+    head.write('RIFF', 0, 'ascii');
+    head.writeUInt32LE(body.length + 4, 4);
+    head.write('WEBP', 8, 'ascii');
+    return Buffer.concat([head, body]);
+  }
+
+  function chunk(fourcc, payload) {
+    const head = Buffer.alloc(8);
+    head.write(fourcc, 0, 'ascii');
+    head.writeUInt32LE(payload.length, 4);
+    return Buffer.concat([head, payload]);
+  }
+
+  /* VP8X: genişletilmiş, 24-bit boyutlar (1 eksiği saklanır) */
+  {
+    const payload = Buffer.alloc(10);
+    payload[0] = 0x10; payload[1] = 0; payload[2] = 0; payload[3] = 0;
+    // width-1 = 1199 -> 1199 = 0xAF 0x04 0x00
+    payload[4] = 1199 & 0xff;
+    payload[5] = (1199 >> 8) & 0xff;
+    payload[6] = (1199 >> 16) & 0xff;
+    // height-1 = 479 -> 479 = 0xDF 0x01 0x00
+    payload[7] = 479 & 0xff;
+    payload[8] = (479 >> 8) & 0xff;
+    payload[9] = (479 >> 16) & 0xff;
+
+    const size = readImageSize(riff(chunk('VP8X', payload)));
+    check('WebP VP8X boyutu okundu', size && size.width === 1200 && size.height === 480, size);
+    check('WebP tipi tanındı', size?.type === 'WebP');
+  }
+
+  /* VP8L: kayıpsız, 14-bit genişlik/yükseklik */
+  {
+    const payload = Buffer.alloc(8);
+    payload[0] = 0x2f;
+    // width-1 = 511, height-1 = 511 -> 14 bit each
+    const bits = (511 & 0x3fff) | ((511 & 0x3fff) << 14);
+    payload.writeUInt32LE(bits >>> 0, 1);
+    const size = readImageSize(riff(chunk('VP8L', payload)));
+    check('WebP VP8L boyutu okundu', size && size.width === 512 && size.height === 512, size);
+  }
+
+  /* VP8 : kayıplı, başlangıç kodu + 14-bit boyutlar */
+  {
+    const payload = Buffer.alloc(10);
+    payload[0] = 0x00; payload[1] = 0x00; payload[2] = 0x00; // kare etiketi
+    payload[3] = 0x9d; payload[4] = 0x01; payload[5] = 0x2a; // başlangıç kodu
+    payload.writeUInt16LE(512 & 0x3fff, 6);
+    payload.writeUInt16LE(512 & 0x3fff, 8);
+    const size = readImageSize(riff(chunk('VP8 ', payload)));
+    check('WebP VP8 boyutu okundu', size && size.width === 512 && size.height === 512, size);
+  }
+
+  /* VP8X + VP8 birlikte (gerçek dosyalarda böyle olur) */
+  {
+    const x = Buffer.alloc(10);
+    x[4] = 255 & 0xff; x[5] = 0; x[6] = 0;   // width-1 = 255 -> 256
+    x[7] = 255 & 0xff; x[8] = 0; x[9] = 0;   // height-1 = 255 -> 256
+    const size = readImageSize(riff(chunk('VP8X', x), chunk('VP8 ', Buffer.alloc(10))));
+    check('WebP çoklu blok okundu', size && size.width === 256 && size.height === 256, size);
+  }
+
+  /* Bozuk WebP: RIFF var ama WEBP yok */
+  {
+    const fake = Buffer.alloc(40);
+    fake.write('RIFF', 0, 'ascii');
+    fake.write('XXXX', 8, 'ascii');
+    check('RIFF ama WebP degil -> null', readImageSize(fake) === null);
+  }
+
+  /* WebP doğrulaması */
+  {
+    function webpBuffer(w, h) {
+      const payload = Buffer.alloc(10);
+      payload[4] = (w - 1) & 0xff; payload[5] = ((w - 1) >> 8) & 0xff;
+      payload[7] = (h - 1) & 0xff; payload[8] = ((h - 1) >> 8) & 0xff;
+      const body = chunk('VP8X', payload);
+      const head = Buffer.alloc(12);
+      head.write('RIFF', 0, 'ascii');
+      head.writeUInt32LE(body.length + 4, 4);
+      head.write('WEBP', 8, 'ascii');
+      return Buffer.concat([head, body]);
+    }
+
+    check('WebP avatar (512x512) kabul', validateImage(webpBuffer(512, 512), 'avatar').ok === true);
+    check('WebP avatar (64x64) reddedildi', validateImage(webpBuffer(64, 64), 'avatar').ok === false);
+
+    const banner = validateImage(webpBuffer(1200, 480), 'banner');
+    check('WebP banner (1200x480) kabul', banner.ok === true, banner);
+
+    const smallBanner = validateImage(webpBuffer(300, 150), 'banner');
+    check('WebP banner (300x150) reddedildi', smallBanner.ok === false);
+
+    const res = validateImage(webpBuffer(512, 512), 'avatar');
+    check('WebP boyutu doğru raporlandı', res.size?.width === 512 && res.size?.height === 512);
+  }
+}
+
 console.log('\n=== 5. Avatar doğrulaması ===');
 {
   /* Hem geçerli bir PNG başlığı hem istenen boyutu taşıyan yardımcı.

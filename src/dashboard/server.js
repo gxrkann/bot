@@ -24,7 +24,8 @@ import * as views from './views.js';
 import {
   getOAuthConfig, getAllowedIds, isAllowed, createState, consumeState,
   authorizeUrl, exchangeCode, createSession, getSession, destroySession,
-  parseCookies, sessionCookie, clearCookie, resolveRedirectUri, guessRedirectUri
+  parseCookies, sessionCookie, clearCookie, resolveRedirectUri, guessRedirectUri,
+  hasPassword, verifyPassword, createPasswordSession
 } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -83,27 +84,55 @@ async function handleRequest(client, req, res) {
     return;
   }
 
-  /* Giriş sayfası: OAuth ayarları ve olası eşleşme ipuçları. */
-  if (url.pathname === '/giris') {
+  /* Giriş sayfası: şifreli giriş veya Discord OAuth. */
+  if (url.pathname === '/giris' || url.pathname === '/login') {
     return handleLoginInfo(client, req, res, redirectUri, guessedUri);
+  }
+
+  /* Şifre gönderimi */
+  if (url.pathname === '/auth/password' && req.method === 'POST') {
+    return handlePasswordLogin(req, res);
+  }
+
+  /* Şifre tanımlı değilse kullanıcı ne yapması gerektiğini görsün. */
+  if (url.pathname === '/giris/yok') {
+    return send(res, 200, views.loginPage({
+      hasDiscordLink: false,
+      passwordLogin: false,
+      error: 'Panel şifresi tanımlı değil ve Discord girişi de kurulu değil.'
+    }));
   }
 
   /* --- OAuth --- */
   if (url.pathname === '/auth/login') return handleLogin(req, res, redirectUri);
-  if (url.pathname === '/auth/callback') return handleCallback(client, req, res, url, redirectUri);
+  if (url.pathname === '/auth/callback') {
+    /* Giriş akışı sorunlarında teşhis için konsola yaz. Giriş denemeleri
+       nadir olduğu için gürültü oluşturmaz. */
+    console.log('🔐 OAuth dönüşü alındı');
+    console.log(`   gelen adres : ${req.headers.host || '?'}${req.headers['x-forwarded-proto'] ? ' (proxy: ' + firstHeader(req.headers['x-forwarded-proto']) + ')' : ''}`);
+    console.log(`   hata        : ${url.searchParams.get('error') || '(yok)'}`);
+    console.log(`   code var mı : ${Boolean(url.searchParams.get('code'))}`);
+    console.log(`   state var mı: ${Boolean(url.searchParams.get('state'))}`);
+    console.log(`   gönderdiğimiz redirect_uri: ${redirectUri || '(gönderilmedi)'}`);
+    return handleCallback(client, req, res, url, redirectUri);
+  }
   if (url.pathname === '/logout' && req.method === 'POST') {
     destroySession(cookies.guard_session);
-    return send(res, 302, '', { 'Set-Cookie': clearCookie(), Location: '/auth/login' });
+    return send(res, 302, '', { 'Set-Cookie': clearCookie(), Location: '/giris' });
   }
 
   /* --- Yetkilendirme --- */
   const session = getSession(cookies.guard_session);
   if (!session) {
-    return send(res, 302, '', { Location: '/auth/login' });
+    /* Oturum yoksa giriş ekranına git. Discord'a doğrudan atmıyoruz:
+       kullanıcı önce şifre formunu görmeli. */
+    return send(res, 302, '', { Location: '/giris' });
   }
 
-  /* Giriş yapmış ama izinli değilse (izin listesi sonradan değişmiş olabilir). */
-  if (!isAllowed(session.userId)) {
+  /* Giriş yapmış ama izinli değilse (izin listesi sonradan değişmiş olabilir).
+       Şifreli giriş kimliği bu kontrolden muaftır: kimlik zaten panel
+       şifresini bilen kişiye veriliyor. */
+  if (session.userId !== 'password-login' && !isAllowed(session.userId)) {
     destroySession(cookies.guard_session);
     return send(res, 403, '<h1>403</h1><p>Bu panele erişim yetkiniz yok.</p>');
   }
@@ -228,11 +257,13 @@ async function handleRequest(client, req, res) {
     return handleApiAction(client, req, res, url);
   }
 
-  /* --- Ana sayfa: ilk sunucuya yönlendir --- */
+  /* --- Ana sayfa: giriş ekranına yönlendir ---
+     ÖNEMLİ: Buradan doğrudan Discord OAuth'a atlamak yanlıştı; kullanıcı
+     şifre formunu hiç görmeden yetkilendirme ekranına düşüyor ve neden
+     ilerlemediğini anlamıyordu. Giriş sayfası hem şifreyi hem Discord
+     seçeneğini gösterir. */
   if (url.pathname === '/') {
-    const first = client.guilds.cache.first();
-    if (!first) return send(res, 200, '<h1>Sunucu yok</h1><p>Bot hiçbir sunucuda değil.</p>');
-    return send(res, 302, '', { Location: `/s/overview?guild=${first.id}` });
+    return send(res, 302, '', { Location: '/giris' });
   }
 
   send(res, 404, views.notFoundPage());
@@ -245,32 +276,56 @@ async function handleRequest(client, req, res) {
 /* Giriş sayfası: eşleşmeyen redirect URI durumunda kullanıcı ne yapması
    gerektiğini görebilmeli. Panel arkasında tahmin edilen adresi gösteriyoruz. */
 function handleLoginInfo(client, req, res, redirectUri, guessedUri) {
-  const config = getOAuthConfig();
   const notes = [];
 
-  if (!config) {
-    return send(res, 200, views.loginPage({
-      error: 'Dashboard OAuth yapılandırılmamış.',
-      hasDiscordLink: false
-    }));
-  }
-
-  if (!getAllowedIds().length) {
-    return send(res, 403, views.loginPage({
-      error: 'DASHBOARD_ALLOWED_IDS boş. Panele kimse erişemez (güvenlik için kapalı).',
-      hasDiscordLink: false
-    }));
+  /* Discord OAuth kurulu değilse giriş ekranı anlamsız; doğrudana /giris. */
+  if (!getOAuthConfig()) {
+    return send(res, 302, '', { Location: hasPassword() ? '/' : '/giris/yok' });
   }
 
   if (!redirectUri && guessedUri && !guessedUri.startsWith('http://localhost')) {
     notes.push(
-      'Bu bot bir reverse proxy arkasında çalışıyor gibi görünüyor. ' +
+      'Bot bir reverse proxy arkasında çalışıyor gibi görünüyor. ' +
       'Discord Developer Portal > OAuth2 > Redirect URLs bölümüne şu adresi ekle:',
       guessedUri
     );
   }
 
-  return send(res, 200, views.loginPage({ hasDiscordLink: true, notes }));
+  return send(res, 200, views.loginPage({ hasDiscordLink: true, notes, passwordLogin: hasPassword() }));
+}
+
+/** Şifre doğrulaması — sabit zamanlı karşılaştırma ve hız sınırlama ile. */
+async function handlePasswordLogin(req, res) {
+  const raw = await readBody(req);
+  const form = new URLSearchParams(raw);
+  const password = form.get('password') || '';
+  const ip = req.socket?.remoteAddress || 'bilinmiyor';
+
+  const result = verifyPassword(password, ip);
+
+  if (!result.ok) {
+    if (result.seconds > 0) {
+      console.warn(`⛔ ${ip}: çok fazla hatalı deneme. ${result.seconds} saniye kilitli.`);
+      return send(res, 429, views.loginPage({
+        hasDiscordLink: false,
+        passwordLogin: true,
+        error: `Çok fazla hatalı deneme. ${result.seconds} saniye sonra tekrar dene.`
+      }));
+    }
+    console.warn(`⛔ Hatalı şifre denemesi: ${ip}`);
+    return send(res, 401, views.loginPage({
+      hasDiscordLink: false,
+      passwordLogin: true,
+      error: 'Şifre yanlış.'
+    }));
+  }
+
+  const sessionId = createPasswordSession();
+  console.log(`🔑 Şifre ile giriş yapıldı (${ip})`);
+  send(res, 302, '', {
+    'Set-Cookie': sessionCookie(sessionId),
+    Location: '/s/overview'
+  });
 }
 
 function handleLogin(req, res, redirectUri, guessedUri) {
@@ -313,7 +368,9 @@ function handleLogin(req, res, redirectUri, guessedUri) {
   let identity;
   try {
     identity = await exchangeCode(code, redirectUri);
+    console.log(`   ✅ token alındı, kullanıcı: ${identity.user.username}#${identity.user.discriminator || '0'} (${identity.user.id})`);
   } catch (err) {
+    console.error(`   ❌ token değişimi başarısız: ${err.message}`);
     return send(res, 400, views.loginPage({
       error: `Token alınamadı: ${err.message}`,
       hasDiscordLink: true
@@ -321,14 +378,16 @@ function handleLogin(req, res, redirectUri, guessedUri) {
   }
 
   if (!isAllowed(identity.user.id)) {
-    console.warn(`⛔ Dashboard girişi reddedildi: ${identity.user.username} (${identity.user.id})`);
+    console.warn(`   ⛔ yetkisiz hesap reddedildi: ${identity.user.username} (${identity.user.id})`);
+    console.warn(`      izin listesindeki ID'ler: ${getAllowedIds().join(', ') || '(boş)'}`);
     return send(res, 403, views.loginPage({
-      error: 'Bu hesap panele erişim yetkisine sahip değil.',
+      error: 'Bu hesap panele erişim yetkisine sahip değil. Bot sahibinin .env içindeki DASHBOARD_ALLOWED_IDS değerine eklemesi gerekiyor.',
       hasDiscordLink: true
     }));
   }
 
   const sessionId = createSession(identity.user);
+  console.log('   🎉 oturum açıldı');
   send(res, 302, '', {
     'Set-Cookie': sessionCookie(sessionId),
     Location: consumed.redirectTo || '/'

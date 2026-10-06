@@ -86,13 +86,80 @@ export function readImageSize(buffer) {
     return null;
   }
 
-  /* GIF: 6 byte imza, sonra mantıksal ekran tanımı */
+  /* GIF: 6 byte imza, sonra mantıksal ekran tanımı (genişlik 6-7, yükseklik 8-9) */
   if (buffer.slice(0, 3).toString('ascii') === 'GIF') {
     // GIF başlığı "GIF87a" veya "GIF89a" olabilir; ilk 3 bayt yeterli.
     return { width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8), type: 'GIF' };
   }
 
+  /* WebP: RIFF konteyneri. Genişlik/yükseklik VP8X (genişletilmiş),
+     VP8 (kayıplı) veya VP8L (kayıpsız) bloklarından birinde saklanır;
+     hangisi olduğunu ayırt etmemiz gerekiyor. */
+  if (buffer.slice(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.slice(8, 12).toString('ascii') === 'WEBP') {
+    return readWebpSize(buffer);
+  }
+
   return null;
+}
+
+/**
+ * WebP piksel boyutlarını okur.
+ * @returns {{width:number, height:number, type:string}|null}
+ */
+function readWebpSize(buffer) {
+  let offset = 12;
+
+  while (offset + 8 <= buffer.length) {
+    const fourcc = buffer.slice(offset, offset + 4).toString('ascii');
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+    const payload = offset + 8;
+
+    /* VP8X: 24-bit genişlik/yükseklik (değer 1 eksiği saklanır). */
+    if (fourcc === 'VP8X' && buffer.length >= payload + 10) {
+      return {
+        width: readUInt24LE(buffer, payload + 4) + 1,
+        height: readUInt24LE(buffer, payload + 7) + 1,
+        type: 'WebP'
+      };
+    }
+
+    /* VP8 : kayıplı sıkıştırma. Kare etiketi ve başlangıç kodundan
+       sonra 14-bit genişlik ve yükseklik gelir. */
+    if (fourcc === 'VP8 ' && buffer.length >= payload + 10) {
+      const isKeyFrame = buffer[payload + 3] === 0x9d &&
+        buffer[payload + 4] === 0x01 &&
+        buffer[payload + 5] === 0x2a;
+      if (isKeyFrame) {
+        return {
+          width: buffer.readUInt16LE(payload + 6) & 0x3fff,
+          height: buffer.readUInt16LE(payload + 8) & 0x3fff,
+          type: 'WebP'
+        };
+      }
+    }
+
+    /* VP8L: kayıpsız. 0x2f imzasından sonra 14-bit genişlik, 14-bit
+       yükseklik (ikisi de 1 eksiği). */
+    if (fourcc === 'VP8L' && buffer.length >= payload + 5 && buffer[payload] === 0x2f) {
+      const bits = buffer.readUInt32LE(payload + 1);
+      return {
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >> 14) & 0x3fff) + 1,
+        type: 'WebP'
+      };
+    }
+
+    /* RIFF kuralı: bloklar 2 bayta hizalıdır. */
+    offset = payload + chunkSize + (chunkSize % 2);
+  }
+
+  return null;
+}
+
+/** 3 baytlık küçük-endian değer okur. */
+function readUInt24LE(buffer, offset) {
+  return buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
 }
 
 /**
@@ -102,7 +169,7 @@ export function readImageSize(buffer) {
 export function validateImage(buffer, kind) {
   const size = readImageSize(buffer);
   if (!size) {
-    return { ok: false, error: 'Görsel okunamadı. PNG, JPEG veya GIF kullan.' };
+    return { ok: false, error: 'Görsel okunamadı. PNG, JPEG, GIF veya WebP kullan.' };
   }
 
   if (kind === 'avatar') {

@@ -158,6 +158,85 @@ export async function exchangeCode(code, redirectUri) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Şifreli giriş (Discord OAuth alternatifi)
+ * ------------------------------------------------------------------ */
+
+const loginAttempts = new Map();   // ip -> { count, until }
+
+/** Çok fazla hatalı deneme varsa o IP'yi geçici olarak kilitler. */
+function checkRateLimit(ip) {
+  const entry = loginAttempts.get(ip);
+  if (!entry) return { ok: true };
+
+  if (entry.until && Date.now() < entry.until) {
+    const seconds = Math.ceil((entry.until - Date.now()) / 1000);
+    return { ok: false, seconds };
+  }
+  return { ok: true };
+}
+
+function registerFailure(ip) {
+  const entry = loginAttempts.get(ip) || { count: 0, until: 0 };
+  entry.count++;
+  // 5 hatalı denemeden sonra 5 dakika kilitle, artan her hatada uzat.
+  if (entry.count >= 5) {
+    entry.until = Date.now() + Math.min((entry.count - 4) * 60000, 15 * 60000);
+  }
+  loginAttempts.set(ip, entry);
+  return entry;
+}
+
+function clearFailures(ip) {
+  loginAttempts.delete(ip);
+}
+
+/**
+ * Panele giriş için tanımlı şifre var mı?
+ * (DASHBOARD_PASSWORD)
+ */
+export function hasPassword() {
+  return Boolean(process.env.DASHBOARD_PASSWORD && process.env.DASHBOARD_PASSWORD.length >= 8);
+}
+
+/**
+ * Şifre doğrulaması — sabit zamanlı karşılaştırma ile.
+ * @returns {{ ok:boolean, seconds?:number }}
+ */
+export function verifyPassword(input, ip) {
+  const rate = checkRateLimit(ip);
+  if (!rate.ok) return { ok: false, seconds: rate.seconds };
+
+  const expected = process.env.DASHBOARD_PASSWORD || '';
+
+  const a = Buffer.from(String(input || ''));
+  const b = Buffer.from(expected);
+
+  // Uzunluk farkını da gizlemek için sahte bir karşılaştırma yapılıyor.
+  const same = a.length === b.length && crypto.timingSafeEqual(a, b);
+
+  if (!same) {
+    const entry = registerFailure(ip);
+    if (entry.until && entry.until > Date.now()) {
+      return { ok: false, seconds: Math.ceil((entry.until - Date.now()) / 1000) };
+    }
+    return { ok: false, seconds: 0 };
+  }
+
+  clearFailures(ip);
+  return { ok: true };
+}
+
+/** Giriş yapan kullanıcıyı sahte bir kimlikle oturum açar. */
+export function createPasswordSession() {
+  return createSession({
+    id: 'password-login',
+    username: 'Yönetici',
+    global_name: 'Yönetici',
+    avatar: null
+  });
+}
+
+/* ------------------------------------------------------------------ *
  * Oturumlar
  * ------------------------------------------------------------------ */
 

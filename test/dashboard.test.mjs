@@ -128,7 +128,7 @@ try {
   console.log('=== 1. Kimlik doğrulama ===');
   {
     const res = await request('/');
-    check('girişsiz istek /auth/login adresine yönlenir', res.status === 302 && res.headers.location === '/auth/login');
+    check('girişsiz istek /giris adresine yönlenir', res.status === 302 && res.headers.location === '/giris');
 
     const protectedRes = await request('/s/overview');
     check('girişsiz panel sayfası engellenir', protectedRes.status === 302);
@@ -401,7 +401,54 @@ console.log('\n=== 13. Olu sunucu kayitlari yonlendirmesi ===');
   client.guardSettings.delete('1504606625657258064');
 }
 
-console.log('\n=== 14. Attachment okuma (profil komutu) ===');
+console.log('\n=== 14b. Sifreli giris ===');
+{
+  process.env.DASHBOARD_PASSWORD = 'testparola123';
+
+  const { hasPassword, verifyPassword, createPasswordSession } =
+    await import('../src/dashboard/auth.js');
+
+  check('sifre tanimli', hasPassword() === true);
+
+  const ok = verifyPassword('testparola123', '1.1.1.1');
+  check('dogru sifre kabul', ok.ok === true, ok);
+
+  const bad = verifyPassword('yanlis', '2.2.2.2');
+  check('yanlis sifre reddedildi', bad.ok === false);
+
+  const empty = verifyPassword('', '3.3.3.3');
+  check('bos sifre reddedildi', empty.ok === false);
+
+  /* Cok kucuk sifre tanimli sayilmamali (config kontrolu) */
+  process.env.DASHBOARD_PASSWORD = 'kisa';
+  check('8 karakterden kisa sifre kabul edilmez', hasPassword() === false);
+  process.env.DASHBOARD_PASSWORD = 'testparola123';
+
+  /* Oturum acma ve panel erisimi */
+  const sessionId = createPasswordSession();
+  const cookie = `guard_session=${sessionId}`;
+  const page = await request('/s/overview', { cookie });
+  check('sifreli oturum panele girebiliyor', page.status === 200 && page.body.includes('Genel Bak'), page.status);
+
+  /* Hatali sifre ile giris denemesi 401 donmeli */
+  const wrong = await request('/auth/password', {
+    method: 'POST',
+    form: { password: 'yanlisparola' }
+  });
+  check('hatali sifre 401 donuyor', wrong.status === 401, wrong.status);
+
+  /* Dogru sifre ile giris */
+  const right = await request('/auth/password', {
+    method: 'POST',
+    form: { password: 'testparola123' }
+  });
+  check('dogru sifre 302 ile panele yonlendiriyor', right.status === 302 && right.headers.location === '/s/overview', right.status);
+  check('oturum cerezi verildi', cookieFrom(right, 'guard_session') !== '');
+
+  delete process.env.DASHBOARD_PASSWORD;
+}
+
+console.log('\n=== 15. Attachment okuma (profil komutu) ===');
 {
   const { __test } = await import('../src/commands/profil.js');
   check('attachmentToBuffer test icin disariya acildi', typeof __test?.attachmentToBuffer === 'function');
