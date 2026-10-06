@@ -382,7 +382,39 @@ function startDashboard() {
  * Başlat
  * ------------------------------------------------------------------ */
 
+/* Panel ortamında teşhis: hangi değişkenler geldi?
+   DEĞERLERİ YAZDIRILMAZ, sadece isimleri ve dolu/boş durumu.
+   Panelde isim farkı ya da yazım hatası varsa tek bakışta görülür. */
+const REQUIRED_ENV = [
+  'DISCORD_TOKEN', 'CLIENT_ID', 'GUILD_ID', 'OWNER_ID',
+  'OWNER_ID_2', 'DASHBOARD_PASSWORD', 'DASHBOARD_ALLOWED_IDS',
+  'DASHBOARD_CLIENT_ID', 'DASHBOARD_CLIENT_SECRET', 'DASHBOARD_PORT',
+  'PORT', 'ENABLE_VOICE_STATES_INTENT', 'ENABLE_GUILD_MEMBERS_INTENT',
+  'ENABLE_MESSAGE_CONTENT_INTENT'
+];
+
+function reportEnv() {
+  const present = REQUIRED_ENV.filter((key) => process.env[key] !== undefined && process.env[key] !== '');
+  const missing = REQUIRED_ENV.filter((key) => !present.includes(key));
+
+  console.log('🔧 Ortam değişkenleri (değerler yazdırılmaz):');
+  if (present.length === 0) {
+    console.log('   HİÇBİRİ YOK — bot dışarıdan hiçbir ayar almamış.');
+  } else {
+    for (const key of present) {
+      const length = String(process.env[key]).length;
+      console.log(`   ✓ ${key} (${length} karakter)`);
+    }
+  }
+  if (missing.length) {
+    console.log(`   tanımsız: ${missing.join(', ')}`);
+  }
+  console.log('');
+}
+
 async function boot() {
+  reportEnv();
+
   if (!config.token) {
     /* Panel ortamı .env dosyası olmadan çalışır (dosya .gitignore'da).
        Bu yüzden hatayı "dosyada eksik" diye değil, "ortam değişkeninde
