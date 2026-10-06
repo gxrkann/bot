@@ -565,6 +565,110 @@ export function suspectsPage({ section, suspects }) {
     </div>`;
 }
 
+export function profilePage({ section, profile, info, limits }) {
+  if (!info) {
+    return `${sectionHeader(section)}<div class="alert alert-warn">Bot profili okunamadı.</div>`;
+  }
+
+  const activityOptions = ['playing', 'watching', 'listening', 'competing', 'custom'];
+  const activityLabels = {
+    playing: 'Playing (oynuyor)', watching: 'Watching (izliyor)',
+    listening: 'Listening (dinliyor)', competing: 'Competing (yarışıyor)',
+    custom: 'Custom (sadece yazı)'
+  };
+  const statusOptions = ['online', 'idle', 'dnd', 'invisible'];
+  const statusLabels = { online: 'Çevrimiçi', idle: 'Görünmez', dnd: 'Meşgul', invisible: 'Tamamen gizli' };
+
+  return `
+    ${sectionHeader(section)}
+
+    <!-- Önizleme -->
+    <div class="card profile-preview">
+      <div class="profile-avatar-box">
+        <img src="${esc(info.avatarUrl)}" alt="Avatar" class="profile-avatar">
+        <div class="profile-name">${esc(info.displayName)}</div>
+        <div class="profile-tag muted">${esc(info.tag)}</div>
+        <div class="profile-activity">
+          ${statusPill(info.status !== 'offline', statusLabels[info.status] || info.status)}
+          ${info.activities.map((a) => `<span class="pill pill-on">${esc(a.type)}: ${esc(a.name)}</span>`).join(' ')}
+        </div>
+      </div>
+      ${info.hasBanner
+        ? `<img src="${esc(info.bannerUrl)}" alt="Banner" class="profile-banner">`
+        : '<div class="profile-banner profile-banner-empty">Banner yok</div>'}
+    </div>
+
+    <div class="grid-2">
+      <!-- Avatar -->
+      <div class="card">
+        <h2>Profil Fotoğrafı (PP)</h2>
+        <p class="muted">Discord en az 128x128 istiyor, 512x512 önerilir. Maksimum ${Math.round(limits.avatarKb)} KB.</p>
+        <form method="post" action="/api/profile/avatar">
+          <input type="file" name="gorsel" accept="image/png,image/jpeg,image/gif" data-image-input="avatarData" required>
+          <input type="hidden" name="avatarData">
+          <div class="upload-preview"></div>
+          <div class="form-actions">
+            <button class="btn btn-primary">Avatar Yükle</button>
+          </div>
+        </form>
+        <form method="post" action="/api/profile/avatar-remove" class="inline-form" data-confirm="Avatar varsayılana döndürülsün mü?">
+          <button class="btn btn-ghost btn-sm">Avatarı Kaldır</button>
+        </form>
+      </div>
+
+      <!-- Banner -->
+      <div class="card">
+        <h2>Banner</h2>
+        <p class="muted">Discord en az 600x240 istiyor, 1200x480 önerilir. Maksimum ${limits.bannerMb} MB.</p>
+        <form method="post" action="/api/profile/banner">
+          <input type="file" name="gorsel" accept="image/png,image/jpeg,image/gif" data-image-input="bannerData" required>
+          <input type="hidden" name="bannerData">
+          <div class="upload-preview"></div>
+          <div class="form-actions">
+            <button class="btn btn-primary">Banner Yükle</button>
+          </div>
+        </form>
+        <form method="post" action="/api/profile/banner-remove" class="inline-form" data-confirm="Banner kaldırılsın mü?">
+          <button class="btn btn-ghost btn-sm">Bannerı Kaldır</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Oyun adı -->
+    <div class="card">
+      <h2>Profil Yazısı (Oyun Adı)</h2>
+      <div class="alert alert-info">
+        Discord'da iki farklı yazı vardır. <strong>Rich Presence</strong> ("X oyunu oynuyor")
+        yalnızca masaüstü uygulamasının RPC kanalıyla çalışır ve botlar kullanamaz.
+        Buradan ayarladığımız şey botun <strong>Activity</strong>'sidir ve profil altında görünür.
+      </div>
+      <form method="post" action="/api/profile/activity">
+        ${row('Görünecek yazı', 'En fazla 128 karakter. Boş bırakırsan kaldırılır.',
+          `<input type="text" name="text" value="${esc(profile.activityText)}" maxlength="128" placeholder="5 sunucuyu koruyor">`)}
+        ${row('Etiket', 'Yazının önüne gelen kelime.',
+          selectInput('type', profile.activityType, activityOptions, activityLabels))}
+        ${row('Ek satır', 'Yalnızca "Custom" seçilirse görünür.',
+          `<input type="text" name="state" value="${esc(profile.activityState || '')}" maxlength="128" placeholder="opsiyonel">`)}
+        ${row('Durum', 'Profildeki görünürlük durumu.',
+          selectInput('status', profile.status, statusOptions, statusLabels))}
+        <div class="card-footer">
+          <button class="btn btn-primary">Kaydet ve Uygula</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Kullanıcı adı / avatar kısayolları -->
+    <div class="card">
+      <h2>Kısayollar</h2>
+      <p class="muted">Aynı işlemleri Discord komutuyla da yapabilirsin. Komutlar sadece bot sahibine açıktır.</p>
+      <pre>/profil gorunum
+/profil avatar
+/profil banner
+/profil banner-kaldir
+/profil oyun "5 sunucuyu koruyor" watching</pre>
+    </div>`;
+}
+
 export function notFoundPage() {
   return `<h1>Sayfa bulunamadı</h1><p><a href="/">Ana sayfaya dön</a></p>`;
 }

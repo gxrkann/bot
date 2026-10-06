@@ -64,7 +64,20 @@ const client = {
   actionBuckets: new Map(),
   config: { ownerIds: ['111111111111111111'], ownerId: '111111111111111111', botName: 'Guard' },
   guilds: { cache: new Collection([[guild.id, guild]]) },
-  user: { id: 'bot1', tag: 'Guard#0001' }
+  /* Sahte istemci: profil sayfası client.user bekliyor. */
+  user: {
+    id: 'bot1',
+    tag: 'Guard#0001',
+    username: 'Guard',
+    globalName: 'Guard Bot',
+    status: 'dnd',
+    activities: [{ name: 'sunucunu koruyor', type: 3 }],
+    displayAvatarURL: () => 'https://cdn.discordapp.com/embed/avatars/1.png',
+    bannerURL: () => null,
+    setAvatar: async () => {},
+    setBanner: async () => {},
+    setPresence: async () => {}
+  }
 };
 
 process.env.DASHBOARD_ALLOWED_IDS = '111111111111111111';
@@ -355,6 +368,66 @@ try {
     const { createDefaultSettings } = await import('../src/store.js');
     check('varsayılan: kelime cezası kapalı', createDefaultSettings().joinGate.username.punishOnMatch === false);
   }
+
+console.log('\n=== 13. Olu sunucu kayitlari yonlendirmesi ===');
+{
+  /* Regr eski botun settings.json'da birakilan olu sunucu ID'leri vardir.
+     Dashboard ilk guardSettings anahtarini secerse botun olmadigi bir
+     sunucuyu acip "Sunucu bulunamadi" diyordu. */
+  client.guardSettings.set('1523278167907893331', withDefaults({ enabled: true }));
+  client.guardSettings.set('1504606625657258064', withDefaults({ enabled: true }));
+
+  const sessionId = createSession({ id: '111111111111111111', username: 'owner', avatar: null });
+  const cookie = `guard_session=${sessionId}`;
+
+  const stale = await request('/s/overview?guild=1523278167907893331', { cookie });
+  check('olu sunucu ID hata sayfasi vermiyor', stale.status === 302, stale.status);
+  check('dogru sunucuya yonlendirdi', (stale.headers.location || '').includes(guild.id), stale.headers.location);
+
+  if (stale.headers.location) {
+    const followed = await request(stale.headers.location, { cookie });
+    check('yonlendirme sonrasi sayfa acildi', followed.status === 200 && followed.body.includes('Genel Bak'), followed.status);
+  }
+
+  /* guild parametresi yoksa yonlendirme yerine dogrudan sayfa acilmali
+     (botun oldugu tek sunucuyu varsayiyor). */
+  const noGuild = await request('/s/overview', { cookie });
+  check('sunucu belirtilmeden sayfa aciliyor', noGuild.status === 200, noGuild.status);
+  check('varsayilan sunucu sayfasi dogru render edildi', noGuild.body.includes('Genel Bak'), noGuild.status);
+  check('hata sayfasi degil', !noGuild.body.includes('Sunucu bulunamadi'));
+
+  /* Olu kayitlari temizle ki diger testleri kirletmesin. */
+  client.guardSettings.delete('1523278167907893331');
+  client.guardSettings.delete('1504606625657258064');
+}
+
+console.log('\n=== 14. Attachment okuma (profil komutu) ===');
+{
+  const { __test } = await import('../src/commands/profil.js');
+  check('attachmentToBuffer test icin disariya acildi', typeof __test?.attachmentToBuffer === 'function');
+
+  const png = Buffer.alloc(40);
+  png.writeUInt32BE(0x89504e47, 0);
+  png.writeUInt32BE(512, 16);
+  png.writeUInt32BE(512, 20);
+
+  const variants = {
+    'data (Buffer)': { data: png },
+    'data (fonksiyon)': { data: async () => png },
+    'attachment()': { attachment: async () => png },
+    'arrayBuffer()': { arrayBuffer: async () => Uint8Array.from(png).buffer }
+  };
+
+  const fn = __test?.attachmentToBuffer;
+  if (typeof fn === 'function') {
+    for (const [label, obj] of Object.entries(variants)) {
+      const result = await fn(obj);
+      check(`  ${label} calisiyor`, Buffer.isBuffer(result) && result.length === png.length);
+    }
+    check('  bos girdi null donuyor', (await fn(null)) === null);
+    check('  taninmayan nesne null donuyor', (await fn({ foo: 1 })) === null);
+  }
+}
 
 } finally {
   server.close();

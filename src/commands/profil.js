@@ -5,6 +5,52 @@ import {
 } from '../profile.js';
 import { isAuthorizedOwner } from '../guard-utils.js';
 
+/**
+ * Attachment nesnesini Buffer'a çevirir.
+ *
+ * discord.js v14'te API sürüme göre değişiyor: bazı sürümlerde
+ * `attachment.arrayBuffer()` (web fetch arayüzü), bazılarında
+ * `attachment.data`, bazılarında `attachment.attachment()` var.
+ * Tek bir yol varsaymak runtime hatası veriyor, hepsini deniyoruz.
+ */
+async function attachmentToBuffer(attachment) {
+  if (!attachment) return null;
+
+  // 1) Zaten Buffer ise doğrudan kullan
+  if (Buffer.isBuffer(attachment)) return attachment;
+
+  // 2) v14.16+: .data özelliği (Buffer)
+  if (attachment.data && Buffer.isBuffer(attachment.data)) return attachment.data;
+
+  // 3) .data getter metod ise çağır
+  if (typeof attachment.data === 'function') {
+    const data = await attachment.data();
+    if (Buffer.isBuffer(data)) return data;
+  }
+
+  // 4) .attachment() -> Promise<Buffer>
+  if (typeof attachment.attachment === 'function') {
+    const data = await attachment.attachment();
+    if (Buffer.isBuffer(data)) return data;
+  }
+
+  // 5) Fetch benzeri arayüz
+  if (typeof attachment.arrayBuffer === 'function') {
+    return Buffer.from(await attachment.arrayBuffer());
+  }
+
+  // 6) Node.js stream
+  if (typeof attachment.stream === 'function') {
+    const chunks = [];
+    for await (const chunk of attachment.stream()) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  return null;
+}
+
 export default {
   data: new SlashCommandBuilder()
     .setName('profil')
@@ -112,7 +158,11 @@ export default {
     /* ---------------- Avatar ---------------- */
     if (sub === 'avatar') {
       const attachment = interaction.options.getAttachment('gorsel', true);
-      const buffer = await attachment.arrayBuffer().then((ab) => Buffer.from(ab));
+      const buffer = await attachmentToBuffer(attachment);
+
+      if (!buffer) {
+        return interaction.editReply('❌ Görsel okunamadı. Dosya bozuk olabilir.');
+      }
 
       const check = validateImage(buffer, 'avatar');
       if (!check.ok) {
@@ -140,7 +190,11 @@ export default {
     /* ---------------- Banner ---------------- */
     if (sub === 'banner') {
       const attachment = interaction.options.getAttachment('gorsel', true);
-      const buffer = await attachment.arrayBuffer().then((ab) => Buffer.from(ab));
+      const buffer = await attachmentToBuffer(attachment);
+
+      if (!buffer) {
+        return interaction.editReply('❌ Görsel okunamadı. Dosya bozuk olabilir.');
+      }
 
       const check = validateImage(buffer, 'banner');
       if (!check.ok) {
@@ -197,3 +251,6 @@ export default {
 };
 
 export { PermissionFlagsBits, AttachmentBuilder, ACTIVITY_TYPES };
+
+/** Testler için: attachment okuma yollarını doğrulamak amacıyla. */
+export const __test = { attachmentToBuffer };

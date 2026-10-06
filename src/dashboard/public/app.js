@@ -125,6 +125,52 @@
     });
   });
 
+  /* ---------------- Görsel yükleme (avatar / banner) ---------------- */
+
+  /* Dosyayı base64'e çevirip gizli alana yazar; form normal urlencoded
+     olarak gönderilir. Sunucu tarafında multipart ayrıştırma gerekmez.
+     Ters çevirmenin kolay olması için küçük bir önizleme de gösteriyoruz. */
+
+  document.querySelectorAll('input[type="file"][data-image-input]').forEach((fileInput) => {
+    const targetName = fileInput.dataset.imageInput;
+    const hidden = document.querySelector(`input[name="${targetName}"]`);
+    const form = fileInput.closest('form');
+    const previewBox = form?.querySelector('.upload-preview');
+    if (!hidden) return;
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      hidden.value = '';
+
+      if (!file) {
+        if (previewBox) previewBox.innerHTML = '';
+        return;
+      }
+
+      /* Boyut uyarısı: sunucu da kontrol ediyor, burada erken uyarıyoruz. */
+      if (file.size > 9 * 1024 * 1024) {
+        window.alert('Dosya çok büyük (9 MB üstü).');
+        fileInput.value = '';
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        /* data:image/png;base64,XXXX -> yalnızca base64 kısmı */
+        hidden.value = dataUrl.includes(',') ? dataUrl.split(',').pop() : dataUrl;
+
+        if (previewBox) {
+          previewBox.innerHTML =
+            `<img src="${dataUrl}" alt="Önizleme" class="upload-preview-img">` +
+            `<span class="muted">${file.name} · ${(file.size / 1024).toFixed(0)} KB</span>`;
+        }
+      };
+      reader.onerror = () => window.alert('Dosya okunamadı.');
+      reader.readAsDataURL(file);
+    });
+  });
+
   /* ---------------- Onay diyalogları ---------------- */
 
   document.querySelectorAll('form[data-confirm]').forEach((form) => {

@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, Collection, Events, ActivityType, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Collection, Events, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL as toFileUrl } from 'node:url';
@@ -96,6 +96,23 @@ async function loadPersistedSettings() {
   return Object.keys(saved).length;
 }
 
+/* Kayıtlı profil yazısını ve durumu uygula. Avatar ve banner Discord'a
+   yüklenmiş olduğu için otomatik gelir; kaydetmemiz gerekmez. */
+async function applySavedProfile() {
+  const { readBotProfile } = await import('./store.js');
+  const { setActivity } = await import('./profile.js');
+
+  const profile = await readBotProfile();
+  const result = await setActivity(client, {
+    text: profile.activityText,
+    type: profile.activityType,
+    status: profile.status,
+    state: profile.activityState
+  });
+
+  if (!result.ok) console.warn('⚠️ Profil yazısı uygulanamadı:', result.error);
+}
+
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`✅ ${readyClient.user.tag} çalışıyor — ${readyClient.guilds.cache.size} sunucu`);
 
@@ -139,8 +156,9 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.log('');
   }
 
+  await applySavedProfile();
+
   await readyClient.user.setPresence({
-    activities: [{ name: 'sunucunu koruyor', type: ActivityType.Watching }],
     status: 'dnd'
   });
 });

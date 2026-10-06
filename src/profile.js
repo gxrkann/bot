@@ -272,23 +272,63 @@ function describe(error, label) {
 
 /** Mevcut profili okur (avatar/banner URL'leri ve etkinlik). */
 export function getProfileInfo(client) {
-  const user = client.user;
+  const user = client?.user;
   if (!user) return null;
 
+  /* Avatar/banner URL'leri discord.js'e özgü. Beklenmeyen bir nesne
+     gelirse panelin tamamı 500 vermek yerine kısmi bilgi döndürüyoruz. */
+  let avatarUrl = '';
+  try {
+    avatarUrl = user.displayAvatarURL?.({ size: 512 }) || '';
+  } catch { avatarUrl = ''; }
+
+  let bannerUrl = '';
+  try {
+    bannerUrl = user.bannerURL?.({ size: 600 }) || '';
+  } catch { bannerUrl = ''; }
+
+  const activities = Array.isArray(user.activities) ? user.activities : [];
+
   return {
-    tag: user.tag,
-    username: user.username,
-    displayName: user.globalName || user.username,
-    id: user.id,
-    avatarUrl: user.displayAvatarURL({ size: 512 }),
-    hasBanner: Boolean(user.bannerURL()),
-    bannerUrl: user.bannerURL({ size: 600 }),
-    status: user.status,
-    activities: user.activities.map((activity) => ({
-      name: activity.name,
-      type: ACTIVITY_LABELS[Object.keys(ACTIVITY_TYPES).find((key) => ACTIVITY_TYPES[key] === activity.type)] || 'Bilinmiyor'
-    }))
+    tag: user.tag || user.username || 'Bilinmiyor',
+    username: user.username || '',
+    displayName: user.globalName || user.username || 'Bilinmiyor',
+    id: user.id || '',
+    avatarUrl,
+    hasBanner: Boolean(bannerUrl),
+    bannerUrl,
+    status: user.status || 'offline',
+    activities: activities.map((activity) => {
+      const key = Object.keys(ACTIVITY_TYPES).find((name) => ACTIVITY_TYPES[name] === activity.type);
+      return { name: activity.name || '', type: key ? ACTIVITY_LABELS[key] : 'Diğer' };
+    })
   };
+}
+
+/**
+ * Tarayıcıdan gelen base64 veriyi Buffer'a çevirir.
+ * Dashboard görsel yüklemede kullanır (multipart ayrıştırmaya gerek kalmaz).
+ *
+ * @param {string} value  data:image/png;base64,... veya sadece base64
+ * @returns {{ ok:boolean, buffer?:Buffer, error?:string }}
+ */
+export function fromBase64(value) {
+  if (!value) return { ok: false, error: 'Görsel verisi boş.' };
+
+  // data URL önekini soy
+  const base64 = String(value).includes(',') ? String(value).split(',').pop() : String(value);
+
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(base64)) {
+    return { ok: false, error: 'Görsel verisi okunamadı (geçersiz base64).' };
+  }
+
+  try {
+    const buffer = Buffer.from(base64, 'base64');
+    if (!buffer.length) return { ok: false, error: 'Görsel verisi boş.' };
+    return { ok: true, buffer };
+  } catch {
+    return { ok: false, error: 'Görsel verisi okunamadı.' };
+  }
 }
 
 export { AVATAR_MAX_BYTES, BANNER_MAX_BYTES, BANNER_MIN_DIMENSION };

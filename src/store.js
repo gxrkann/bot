@@ -311,6 +311,42 @@ export async function readAllSettings() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Bot profili (sunucuya özel değil, bot geneli)
+ * ------------------------------------------------------------------ */
+
+const profileFile = path.join(storageDir, 'bot-profile.json');
+
+export function createDefaultBotProfile() {
+  return {
+    activityText: 'sunucunu koruyor',
+    activityType: 'watching',
+    activityState: '',
+    status: 'dnd',
+    updatedAt: 0
+  };
+}
+
+export async function readBotProfile() {
+  await ensureStorage();
+  try {
+    const raw = await fs.readFile(profileFile, 'utf8');
+    const parsed = JSON.parse(raw || '{}');
+    return { ...createDefaultBotProfile(), ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+  } catch {
+    return createDefaultBotProfile();
+  }
+}
+
+export async function saveBotProfile(profile) {
+  await ensureStorage();
+  const merged = { ...createDefaultBotProfile(), ...profile, updatedAt: Date.now() };
+  const temp = `${profileFile}.${process.pid}.tmp`;
+  await fs.writeFile(temp, JSON.stringify(merged, null, 2), 'utf8');
+  await fs.rename(temp, profileFile);
+  return merged;
+}
+
+/* ------------------------------------------------------------------ *
  * Yedekler
  * ------------------------------------------------------------------ */
 

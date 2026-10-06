@@ -112,9 +112,28 @@ async function handleRequest(client, req, res) {
     const section = SECTIONS.find((item) => item.id === sectionId);
     if (!section) return send(res, 404, views.notFoundPage());
 
-    const guildId = url.searchParams.get('guild') || [...client.guardSettings.keys()][0] || client.guilds.cache.first()?.id;
-    const guild = client.guilds.cache.get(guildId);
-    if (!guild) return send(res, 400, '<h1>Sunucu bulunamadı</h1><p>Bot bu sunucuda değil.</p>');
+    /* Sunucu seçimi: istekte guild varsa onu kullan, yoksa botun gerçekten
+       bulunduğu ilk sunucuyu seç.
+
+       ÖNEMLİ: client.guardSettings ESKİ botun kayıtlarını da içerebilir
+       (settings.json biriktirilmiş olur). İlk anahtarı seçmek, botun
+       bulunmadığı ölü bir sunucuyu açıp "Sunucu bulunamadı" hatası verirdi.
+       Bu yüzden kaynak daima client.guilds.cache olmalı. */
+    const requested = url.searchParams.get('guild');
+    const guild = (requested && client.guilds.cache.get(requested)) || client.guilds.cache.first();
+    const guildId = guild?.id;
+
+    if (!guildId) {
+      return send(res, 400,
+        '<h1>Sunucu bulunamadı</h1><p>Bot şu anda hiçbir sunucuda değil. ' +
+        'Botu bir sunucuya eklediğinde panel burada görünecek.</p>');
+    }
+
+    /* Eski bir bağlantıda yanlış sunucu ID'si varsa düzeltilmiş adrese
+       yönlendir (kullanıcı hata sayfası görmesin). */
+    if (requested && requested !== guildId && req.method === 'GET') {
+      return send(res, 302, '', { Location: `/s/${sectionId}?guild=${guildId}` });
+    }
 
     const { getGuildSettings } = await import('../guard-utils.js');
     const settings = getGuildSettings(client, guildId);
@@ -141,6 +160,20 @@ async function handleRequest(client, req, res) {
             heatTop: getHeatSnapshot(guildId, settings.heat),
             botRoleTop: isBotRoleTop(guild),
             joinStats: getJoinStats(guildId, settings.joinRaid.windowMs)
+          }
+        });
+        break;
+      }
+      case 'profile': {
+        const { getProfileInfo, AVATAR_MAX_BYTES, BANNER_MAX_BYTES } = await import('../profile.js');
+        const { readBotProfile } = await import('../store.js');
+        body = views.profilePage({
+          section, settings,
+          profile: await readBotProfile(),
+          info: getProfileInfo(client),
+          limits: {
+            avatarKb: Math.round(AVATAR_MAX_BYTES / 1024),
+            bannerMb: Math.round(BANNER_MAX_BYTES / 1024 / 1024)
           }
         });
         break;
@@ -177,6 +210,11 @@ async function handleRequest(client, req, res) {
       flash
     });
     return send(res, 200, html, flash ? clearFlash : {});
+  }
+
+  /* --- Profil işlemleri (dashboard'dan avatar / banner / oyun adı) --- */
+  if (url.pathname.startsWith('/api/profile/') && req.method === 'POST') {
+    return handleProfileAction(client, req, res, url);
   }
 
   /* --- Anlık işlemler --- */
@@ -399,19 +437,112 @@ function applyForm(section, settings, form) {
  * Anlık işlemler
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * Profil işlemleri
+ * ------------------------------------------------------------------ */
+
+/**
+ * Avatar / banner / profil yazısı işlemleri.
+ *
+ * Görsel yükleme: tarayıcı dosyayı base64'e çevirip normal form alanı
+ * olarak gönderiyor (app.js). Böylece multipart ayrıştırmaya gerek kalmıyor.
+ * Alan adı doğrulanıyor; istek gövdesi zaten 1 MB ile sınırlı.
+ */
+async function handleProfileAction(client, req, res, url) {
+  const action = url.pathname.replace('/api/profile/', '');
+
+  const raw = await readBody(req);
+  const form = new URLSearchParams(raw);
+
+  const back = (message, type = 'success') => send(res, 302, '', {
+    'Set-Cookie': flashCookie(type, message),
+    Location: '/s/profile'
+  });
+
+  /* Profil değişiklikleri tüm sunucular için geçerlidir, sunucu seçimi yok. */
+  const { setAvatar, setBanner, removeAvatar, removeBanner, setActivity, validateImage, fromBase64 } =
+    await import('../profile.js');
+  const { readBotProfile, saveBotProfile } = await import('../store.js');
+
+  if (action === 'avatar' || action === 'banner') {
+    const decoded = fromBase64(form.get(action === 'avatar' ? 'avatarData' : 'bannerData'));
+    if (!decoded.ok) return back(decoded.error, 'error');
+
+    const check = validateImage(decoded.buffer, action);
+    if (!check.ok) return back(check.error, 'error');
+
+    const result = action === 'avatar'
+      ? await setAvatar(client, decoded.buffer)
+      : await setBanner(client, decoded.buffer);
+
+    if (!result.ok) return back(result.error, 'error');
+
+    const label = action === 'avatar' ? 'Avatar' : 'Banner';
+    return back(`${label} güncellendi (${check.size.width}x${check.size.height} ${check.size.type}).`);
+  }
+
+  if (action === 'avatar-remove') {
+    const result = await removeAvatar(client);
+    return result.ok ? back('Avatar varsayılana döndürüldü.') : back(result.error, 'error');
+  }
+
+  if (action === 'banner-remove') {
+    const result = await removeBanner(client);
+    return result.ok ? back('Banner kaldırıldı.') : back(result.error, 'error');
+  }
+
+  if (action === 'activity') {
+    const current = await readBotProfile();
+
+    const text = String(form.get('text') || '').trim().slice(0, 128);
+    const type = String(form.get('type') || current.activityType || 'watching');
+    const state = String(form.get('state') || '').trim().slice(0, 128);
+    const status = String(form.get('status') || current.status || 'online');
+
+    /* Seçenek doğrulaması — istemciden gelen her değeri kabul etmeyelim. */
+    const validTypes = ['playing', 'watching', 'listening', 'competing', 'custom'];
+    const validStatuses = ['online', 'idle', 'dnd', 'invisible'];
+
+    const applied = await setActivity(client, {
+      text,
+      type: validTypes.includes(type) ? type : 'watching',
+      status: validStatuses.includes(status) ? status : 'online',
+      state
+    });
+
+    if (!applied.ok) return back(applied.error, 'error');
+
+    await saveBotProfile({
+      activityText: text,
+      activityType: validTypes.includes(type) ? type : 'watching',
+      activityState: state,
+      status: validStatuses.includes(status) ? status : 'online'
+    });
+
+    return back(text ? `Profil yazısı ayarlandı: "${text}"` : 'Profil yazısı kaldırıldı.');
+  }
+
+  return back('Bilinmeyen işlem.', 'error');
+}
+
+/* ------------------------------------------------------------------ *
+ * Anlık işlemler
+ * ------------------------------------------------------------------ */
+
 async function handleApiAction(client, req, res, url) {
   const raw = await readBody(req);
   const form = new URLSearchParams(raw);
   const action = url.pathname.replace('/api/', '');
-  const guildId = form.get('guild') || [...client.guardSettings.keys()][0] || client.guilds.cache.first()?.id;
-  const guild = client.guilds.cache.get(guildId);
+  const requested = form.get('guild');
+  const guild = (requested && client.guilds.cache.get(requested)) || client.guilds.cache.first();
+  const guildId = guild?.id;
 
   const back = (message, type = 'success') => send(res, 302, '', {
     'Set-Cookie': flashCookie(type, message),
     Location: `/s/actions?guild=${guildId}`
   });
 
-  if (!guild) return back('Sunucu bulunamadı.', 'error');
+  if (!guildId) return back('Bot hiçbir sunucuda değil.', 'error');
 
   const { getGuildSettings, saveGuildSettings } = await import('../guard-utils.js');
   const settings = getGuildSettings(client, guildId);

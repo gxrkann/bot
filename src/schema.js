@@ -21,6 +21,24 @@ function f(name, label, type = 'boolean', extra = {}) {
 export const SECTIONS = [
   /* ---------------------------------------------------------- */
   {
+    id: 'profile',
+    title: 'Bot Profili',
+    icon: '🖼️',
+    description: 'Avatar, banner ve profil altında görünecek yazı. Aynı işlemleri /profil komutuyla da yapabilirsin.',
+    readOnly: true
+  },
+
+  /* ---------------------------------------------------------- *
+   * Section order: overview, statics, protection, joingate, heat,
+   * antinuke, joinraid, verification, backups, whitelist, actions,
+   * suspects, advanced
+   *
+   * Profil bölümü kullanıcıya yakın durması için overview'ın hemen
+   * arkasına eklendi.
+   * ---------------------------------------------------------- */
+
+  /* ---------------------------------------------------------- */
+  {
     id: 'overview',
     title: 'Genel Bakış',
     icon: '📊',
