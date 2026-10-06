@@ -3,7 +3,9 @@ import { getGuildSettings, sendGuardLog } from '../guard-utils.js';
 import { inspectAction } from '../anti-nuke.js';
 
 export default {
-  name: Events.RoleCreate,
+  // discord.js v14'te rol olayları GuildRoleCreate/GuildRoleDelete/GuildRoleUpdate
+  // adıyla gelir; Events.RoleCreate YOKTUR (undefined döner ve handler kayıt olmaz).
+  name: Events.GuildRoleCreate,
   async execute(role, client) {
     const guild = role?.guild;
     if (!guild) return;

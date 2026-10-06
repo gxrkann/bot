@@ -3,7 +3,7 @@ import { getGuildSettings, sendGuardLog } from '../guard-utils.js';
 import { inspectAction } from '../anti-nuke.js';
 
 export default {
-  name: Events.RoleDelete,
+  name: Events.GuildRoleDelete,
   async execute(role, client) {
     const guild = role?.guild;
     if (!guild) return;

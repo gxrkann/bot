@@ -1,5 +1,5 @@
 import { Events, AuditLogEvent } from 'discord.js';
-import { sendGuardLog, getGuildSettings, addSuspect, removeSuspect } from '../guard-utils.js';
+import { sendGuardLog, getGuildSettings, addSuspect, removeSuspect, recordAction } from '../guard-utils.js';
 import { inspectRoleChange } from '../anti-nuke.js';
 
 export default {
@@ -24,6 +24,26 @@ export default {
     const removedRole = oldMember.roles.cache.find((role) => !newMember.roles.cache.has(role.id));
     if (addedRole || removedRole) {
       await sendGuardLog(client, guild, '🎭 Roller değiştirildi', `Kullanıcı: ${newMember.user.tag}`, 0xfaa61a);
+
+      /* Toplu rol verme tespiti: kısa sürede çok sayıda rol değişimi olursa
+         (bir yönetici script'i çalıştırmış olabilir) loglanır.
+         Bu kontrol roleMembersUpdate.js'den taşındı — dosya GuildMemberUpdate
+         event'ini zaten dinliyordu ve mükerrer kayıt olarak atlanıyordu. */
+      if (addedRole && !removedRole) {
+        const spammed = recordAction(
+          client, guild.id, 'role-add',
+          settings.actionThreshold ?? 5,
+          settings.actionWindowMs ?? 10000
+        );
+        if (spammed) {
+          await sendGuardLog(
+            client, guild,
+            '⚠️ Toplu rol verme tespit edildi',
+            `${settings.actionThreshold} rol değişimi ${Math.round((settings.actionWindowMs ?? 10000) / 1000)} saniye içinde yapıldı.\nKullanıcı: ${newMember.user.tag}`,
+            0xed4245
+          );
+        }
+      }
 
       /* Quarantine koruması: karantineli üyeye rol verilmeye çalışılıyorsa
          saldırgan karantinelenir. */

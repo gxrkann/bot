@@ -3,7 +3,9 @@ import { getGuildSettings, sendGuardLog } from '../guard-utils.js';
 import { inspectAction } from '../anti-nuke.js';
 
 export default {
-  name: Events.WebhookUpdate,
+  // Discord her webhook güncellemesinde bir kez değil, sunucu başına bir kez
+  // 'webhooksUpdate' yayımlar. WebhookUpdate ayrı bir olay değildir.
+  name: Events.WebhooksUpdate,
   async execute(newWebhook, oldWebhook, client) {
     const guild = newWebhook?.guild;
     if (!guild) return;

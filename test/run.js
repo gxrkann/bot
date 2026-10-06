@@ -9,6 +9,7 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const suites = [
+  'boot.test.mjs',
   'systems.test.mjs',
   'profile.test.mjs',
   'dashboard.test.mjs'

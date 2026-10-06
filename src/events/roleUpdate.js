@@ -3,7 +3,7 @@ import { getGuildSettings, sendGuardLog } from '../guard-utils.js';
 import { inspectDangerousPermissions } from '../anti-nuke.js';
 
 export default {
-  name: Events.RoleUpdate,
+  name: Events.GuildRoleUpdate,
   async execute(oldRole, newRole, client) {
     const guild = newRole?.guild;
     if (!guild) return;

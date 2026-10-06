@@ -5,10 +5,10 @@ import { fileURLToPath, pathToFileURL as toFileUrl } from 'node:url';
 
 import { config } from './config.js';
 import {
-  getGuildSettings, saveGuildSettings, readAllSettings, deleteGuildSettings,
+  getGuildSettings, saveGuildSettings, deleteGuildSettings,
   parseSuspectActionId, isReviewAuthorized, removeSuspect, getActionableReasons, evaluateMember
 } from './guard-utils.js';
-import { flushPendingWrites } from './store.js';
+import { readAllSettings, flushPendingWrites } from './store.js';
 import { createDashboard } from './dashboard/server.js';
 import { startCleanupTimer } from './dashboard/auth.js';
 import { completeVerification } from './verification.js';
@@ -322,7 +322,7 @@ function startDashboard() {
  * Başlat
  * ------------------------------------------------------------------ */
 
-(async () => {
+async function boot() {
   if (!config.token) {
     console.error('❌ .env dosyasında DISCORD_TOKEN eksik.');
     process.exit(1);
@@ -336,7 +336,16 @@ function startDashboard() {
   if (process.env.DASHBOARD_ENABLED !== 'false') {
     startDashboard();
   }
-})();
+}
+
+/* GUARD_SKIP_BOOT yalnızca testler içindir: dosyayı yükleyip import
+   hatalarını yakalamak isteriz ama Discord'a bağlanmayız. */
+if (process.env.GUARD_SKIP_BOOT !== '1') {
+  boot().catch((error) => {
+    console.error('❌ Başlatma hatası:', error.message);
+    process.exit(1);
+  });
+}
 
 /* Kapanırken bekleyen yazmaları tamamla. */
 for (const signal of ['SIGINT', 'SIGTERM']) {
