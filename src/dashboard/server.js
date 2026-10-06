@@ -593,7 +593,7 @@ async function handleVoiceAction(client, req, res, url) {
     const channelId = voice.resolveVoiceChannelId(guild, form.get('channelId'));
     if (!channelId) return back('Ses kanalı seçilmedi.', 'error');
 
-    const result = await voice.joinVoiceChannel(guild, channelId, {
+    const result = await voice.joinVoiceChannel(client, guild, channelId, {
       selfMute: settings.voice.selfMute,
       selfDeaf: settings.voice.selfDeaf
     });
@@ -623,7 +623,7 @@ async function handleVoiceAction(client, req, res, url) {
 
     /* Ayarlar bağlıyken yeniden bağlan (sessiz değişiklikler uygulansın). */
     if (settings.voice.enabled && settings.voice.channelId) {
-      await voice.joinVoiceChannel(guild, settings.voice.channelId, {
+      await voice.joinVoiceChannel(client, guild, settings.voice.channelId, {
         selfMute: settings.voice.selfMute,
         selfDeaf: settings.voice.selfDeaf
       }).catch(() => null);

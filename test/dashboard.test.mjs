@@ -448,7 +448,88 @@ console.log('\n=== 14b. Sifreli giris ===');
   delete process.env.DASHBOARD_PASSWORD;
 }
 
-console.log('\n=== 15. Attachment okuma (profil komutu) ===');
+console.log('\n=== 15. Ses bolumu ===');
+{
+  const voice = await import('../src/voice.js');
+
+  /* Kanal tipi sabitleri dogru mu? */
+  check('voice kanal tipi = 2', voice.CHANNEL_TYPE.voice === 2);
+  check('stageVoice kanal tipi = 13', voice.CHANNEL_TYPE.stageVoice === 13);
+
+  /* Metin kanalina girme denemesi reddedilmeli.
+     ÖNEMLİ: discord.js v14'te channel.join() yok. Önceki kontrol
+     typeof channel.join === 'function' idi ve HER kanalı "ses kanalı
+     değil" sayıyordu, gerçek ses kanalları dahil. */
+  const textChannel = { id: 't1', name: 'genel', type: 0, isTextBased: () => true };
+  const voiceChannel = { id: 'v1', name: 'Toplantı', type: 2 };
+  const stageChannel = { id: 's1', name: 'Sahne', type: 13 };
+
+  /* discord.js v14'te guild.voiceStates.create() YOK. Bağlantı
+     client.joinVoiceChannel() ile kurulur. */
+  const fakeClient = {
+    joinVoiceChannel: async () => {
+      throw new Error('test: baglanti denenmemeli');
+    }
+  };
+  const fakeGuild = {
+    id: 'g1',
+    channels: { cache: new Collection([
+      [textChannel.id, textChannel],
+      [voiceChannel.id, voiceChannel],
+      [stageChannel.id, stageChannel]
+    ]) },
+    members: { fetch: async () => null }
+  };
+
+  const textResult = await voice.joinVoiceChannel(fakeClient, fakeGuild, 't1');
+  check('metin kanali reddediliyor', textResult.ok === false, textResult);
+  check('reddetme nedeni acik', textResult.error?.includes('ses kanalı değil'), textResult.error);
+
+  /* dogru API kullaniliyor mu: guild.voiceStates.create YOK */
+  check('fakeGuild.voiceStates yok (v14 API kaldirilmis)', fakeGuild.voiceStates === undefined);
+
+  const missing = await voice.joinVoiceChannel(fakeClient, fakeGuild, 'yok');
+  check('olmayan kanal reddediliyor', missing.ok === false);
+
+  const empty = await voice.joinVoiceChannel(fakeClient, fakeGuild, '');
+  check('bos kanal reddediliyor', empty.ok === false);
+
+  /* joinVoiceChannel yoksa anlamli hata vermeli */
+  const noJoin = await voice.joinVoiceChannel({}, fakeGuild, 'v1');
+  check('joinVoiceChannel yoksa hata veriyor', noJoin.ok === false, noJoin);
+  check('hata sebebi belirtiliyor', Boolean(noJoin.error), noJoin.error);
+
+  const noClient = await voice.joinVoiceChannel(null, fakeGuild, 'v1');
+  check('istemci yoksa hata veriyor', noClient.ok === false);
+
+  const noGuild = await voice.joinVoiceChannel(fakeClient, null, 'v1');
+  check('sunucu yoksa hata veriyor', noGuild.ok === false);
+
+  /* Kanal cozumleme: ID ve isim ile */
+  check('ses kanali ID ile cozuluyor', voice.resolveVoiceChannelId(fakeGuild, 'v1') === 'v1');
+  check('ses sahnesi cozuluyor', voice.resolveVoiceChannelId(fakeGuild, 's1') === 's1');
+  check('metin kanali cozulmuyor', voice.resolveVoiceChannelId(fakeGuild, 't1') === '');
+  check('isimle cozuluyor', voice.resolveVoiceChannelId(fakeGuild, 'toplantı') === 'v1');
+  check('bilinmeyen isim bos donuyor', voice.resolveVoiceChannelId(fakeGuild, 'yok-boyle') === '');
+
+  /* Kanal listesi yalnizca ses kanallarini icermeli */
+  const listed = voice.listVoiceChannels(fakeGuild, null);
+  check('listede 2 ses kanali var', listed.length === 2, listed.length);
+  check('metin kanali listelenmedi', !listed.some((c) => c.id === 't1'));
+  check('ses kanali listelendi', listed.some((c) => c.id === 'v1'));
+  check('sahne kanali listelendi', listed.some((c) => c.id === 's1'));
+
+  /* Kanal silinince baglanti temizlenmeli (cleanup) */
+  check('handleChannelDelete cagrilabiliyor', typeof voice.handleChannelDelete === 'function');
+  check('handleGuildDelete cagrilabiliyor', typeof voice.handleGuildDelete === 'function');
+  check('handleVoiceStateUpdate cagrilabiliyor', typeof voice.handleVoiceStateUpdate === 'function');
+
+  /* Temel durum fonksiyonlari */
+  check('getVoiceState bos sunucu icin null', voice.getVoiceState('yok') === null);
+  check('isInVoice false baslangicta', voice.isInVoice('yok') === false);
+}
+
+console.log('\n=== 16. Attachment okuma (profil komutu) ===');
 {
   const { __test } = await import('../src/commands/profil.js');
   check('attachmentToBuffer test icin disariya acildi', typeof __test?.attachmentToBuffer === 'function');

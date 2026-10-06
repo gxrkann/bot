@@ -10,12 +10,69 @@
  */
 import { Events } from 'discord.js';
 
+/* discord.js v14'te ses bağlantısı ayrı paketten geliyor.
+   @discordjs/voice discord.js'e BAĞIMLILIK DEĞİL, ayrıca kurulmalı:
+     npm install @discordjs/voice
+   package.json'a eklendi. */
+import {
+  joinVoiceChannel as joinVoiceConnection,
+  VoiceConnectionStatus
+} from '@discordjs/voice';
+
 /** guildId -> { connection, channelId, joinedAt, reconnects } */
 const connections = new Map();
 
 /* ------------------------------------------------------------------ *
  * Durum
  * ------------------------------------------------------------------ */
+
+/**
+ * Bağlantının "Ready" olmasını bekler.
+ *
+ * @param {object} connection  @discordjs/voice bağlantı nesnesi
+ * @param {number} timeoutMs
+ * @returns {Promise<boolean>} hazırsa true, zaman aşımı veya hata durumunda false
+ */
+function waitForReady(connection, timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    if (!connection || typeof connection.on !== 'function') {
+      resolve(false);
+      return;
+    }
+
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { connection.off?.('stateChange', onChange); } catch { /* yoksay */ }
+      resolve(value);
+    };
+
+    const onChange = (oldState, newState) => {
+      if (newState?.status === VoiceConnectionStatus.Ready) finish(true);
+      if (newState?.status === VoiceConnectionStatus.Destroyed) finish(false);
+      if (newState?.status === VoiceConnectionStatus.Signalling && oldState?.status === VoiceConnectionStatus.Disconnected) {
+        /* Discord bizi attı */
+        finish(false);
+      }
+    };
+
+    const timer = setTimeout(() => finish(false), timeoutMs);
+
+    /* Zaten hazırsa gecikmeden dön. */
+    if (connection.state?.status === VoiceConnectionStatus.Ready) {
+      finish(true);
+      return;
+    }
+    if (connection.state?.status === VoiceConnectionStatus.Destroyed) {
+      finish(false);
+      return;
+    }
+
+    connection.on('stateChange', onChange);
+  });
+}
 
 export function getVoiceState(guildId) {
   return connections.get(guildId) || null;
@@ -36,36 +93,51 @@ export function getActiveGuilds() {
 /**
  * Botu bir ses kanalına sokar.
  *
+ * @param {import('discord.js').Client} client  Discord istemcisi (ses bağlantısı istemci üzerinden kurulur)
  * @param {import('discord.js').Guild} guild
  * @param {string} channelId
  * @param {object} options
  * @returns {{ ok:boolean, error?:string, rejoining?:boolean }}
  */
-export async function joinVoiceChannel(guild, channelId, options = {}) {
+export async function joinVoiceChannel(client, guild, channelId, options = {}) {
   const selfMute = options.selfMute !== false;
   const selfDeaf = options.selfDeaf !== false;
 
   if (!channelId) return { ok: false, error: 'Ses kanalı seçilmedi.' };
 
+  if (!guild) return { ok: false, error: 'Sunucu bulunamadı.' };
+  if (!client) return { ok: false, error: 'Bot istemcisi bulunamadı.' };
+
   const channel = guild.channels.cache.get(channelId);
   if (!channel) return { ok: false, error: 'Ses kanalı bulunamadı (silinmiş olabilir).' };
 
-  /* discord.js ses bağlantısını yalnızca metin/voice kanalı üzerinden kurar. */
-  if (typeof channel.join !== 'function') {
-    return { ok: false, error: 'Bu kanal bir ses kanalı değil.' };
+  /* Kanal gerçekten ses kanalı mı?
+     ÖNEMLİ: discord.js v14'te channel.join() KALDIRILDI ve
+     guild.voiceStates.create() de kaldırıldı. Doğru yol
+     client.joinVoiceChannel() (discord.js'in @discordjs/voice
+     eklentisinden dışa aktardığı fonksiyon).
+     Eski API'leri kontrol etmek her zaman "ses kanalı değil" ya da
+     "create is not a function" hatası veriyordu. */
+  const isVoice = channel.type === 2 ||
+    channel.type === 13 ||          // sesli sahne
+    (typeof channel.isVoiceBased === 'function' && channel.isVoiceBased() && !channel.isDMBased?.());
+
+  if (!isVoice) {
+    return { ok: false, error: 'Bu kanal bir ses kanalı değil. Paneldeki ses kanalı listesinden seç.' };
   }
 
   const existing = connections.get(guild.id);
 
   /* Zaten aynı kanaldaysak bağlantıyı bozmayız. */
   if (existing?.channelId === channelId) {
-    if (existing.connection.reconnecting || existing.connection.state.status !== 'Ready') {
-      try {
-        existing.connection.rejoin();
-        return { ok: true, rejoining: true };
-      } catch { /* yeniden kurulum aşağıda yapılacak */ }
+    const status = existing.connection?.state?.status;
+    if (status === VoiceConnectionStatus.Ready || status === VoiceConnectionStatus.Connecting) {
+      return { ok: true, rejoining: true };
     }
-    return { ok: true, rejoining: true };
+    try {
+      existing.connection?.rejoin?.();
+      return { ok: true, rejoining: true };
+    } catch { /* yeniden kurulum aşağıda yapılacak */ }
   }
 
   /* Başka kanaldaysak önce çık. */
@@ -73,16 +145,54 @@ export async function joinVoiceChannel(guild, channelId, options = {}) {
     await destroyConnection(guild, 'kanal değişti');
   }
 
-  /* discord.js v14 önerilen yol: guild.voiceStates.create(). */
-  try {
-    const connection = guild.voiceStates
-      ? await guild.voiceStates.create({ channelId, selfDeaf, selfMute })
-      : null;
+  /* Kanal görünür değilse ya da bağlanma yetkisi yoksa erken çık. */
+  const me = guild.members?.me;
+  if (me?.permissions?.has?.('Connect') === false) {
+    return { ok: false, error: 'Botun "Bağlan" (Connect) yetkisi yok.' };
+  }
 
-    if (!connection) {
+  /* discord.js v14'te guild.voiceStates.create() KALDIRILDI. Doğru yol
+     @discordjs/voice paketindeki joinVoiceChannel(client, ...). */
+  try {
+    if (typeof joinVoiceConnection !== 'function') {
       return {
         ok: false,
-        error: 'Bu sunucuda ses bağlantısı kurulamadı. Bot için Voice Gateway yetkisi gerekebilir.'
+        error: '@discordjs/voice paketi eksik. Terminalde "npm install @discordjs/voice" çalıştır.'
+      };
+    }
+
+    /* Doğru kullanım (discord.js guide):
+       joinVoiceChannel({ channelId, guildId, adapterCreator })
+     adapterCreator olmadan "options.adapterCreator is not a function"
+     hatası veriyor. discord.js bunu guild.voiceAdapterCreator ile sağlar. */
+    const adapterCreator = guild.voiceAdapterCreator;
+    if (typeof adapterCreator !== 'function') {
+      return {
+        ok: false,
+        error: 'Ses bağlantısı kurulamadı: sunucu ses adaptörü hazır değil. GuildVoiceStates intent\'i açık olmalı.'
+      };
+    }
+
+    const connection = joinVoiceConnection({
+      channelId,
+      guildId: guild.id,
+      selfDeaf,
+      selfMute,
+      adapterCreator
+    });
+
+    /* joinVoiceChannel SENKRON çağrıdır: bağlantı nesnesini hemen
+       döndürür, "Ready" olması saniyeler alabilir. Kullanıcıya
+       "bağlandı" deyip başarısız olmamak için Ready'yi bekliyoruz. */
+    const ready = await waitForReady(connection, 15000);
+
+    if (!ready) {
+      const status = connection.state?.status || 'bilinmiyor';
+      try { connection.destroy(); } catch { /* yoksay */ }
+      return {
+        ok: false,
+        error: `Ses bağlantısı kurulamadı (durum: ${status}). Botun "Bağlan" yetkisi ve GuildVoiceStates intent'i kontrol edilmeli.`,
+        status
       };
     }
 
@@ -94,16 +204,6 @@ export async function joinVoiceChannel(guild, channelId, options = {}) {
       selfMute,
       selfDeaf
     });
-
-    /* Bağlantı düştüğünde haberdar olalım. */
-    if (typeof connection.on === 'function') {
-      connection.on('stateChange', (oldState, newState) => {
-        if (newState.status === 'Disconnected') {
-          const entry = connections.get(guild.id);
-          if (entry) entry.connection = connection;
-        }
-      });
-    }
 
     return { ok: true };
   } catch (error) {
@@ -146,7 +246,7 @@ async function destroyConnection(guild, reason) {
  * Botun kanalından atılmasını engeller veya geri bağlanmayı dener.
  * Discord bağlantıyı koparırsa bu devreye girer.
  */
-export function handleVoiceStateUpdate(oldState, newState) {
+export function handleVoiceStateUpdate(client, oldState, newState) {
   const guildId = newState?.guild?.id;
   if (!guildId) return;
 
@@ -154,7 +254,7 @@ export function handleVoiceStateUpdate(oldState, newState) {
   if (!entry) return;
 
   /* Bot kendi durumunu güncellediyse (atıldıysa geri dönüyoruz). */
-  if (newState.id === newState.client.user?.id) {
+  if (newState.id === newState.client?.user?.id) {
     if (newState.channelId === null) {
       // Kanal dışına itildi: kısa süre sonra geri bağlanmayı dene.
       entry.reconnects = (entry.reconnects || 0) + 1;
@@ -165,7 +265,7 @@ export function handleVoiceStateUpdate(oldState, newState) {
       setTimeout(() => {
         const current = connections.get(guildId);
         if (!current) return;
-        joinVoiceChannel(newState.guild, current.channelId, {
+        joinVoiceChannel(client, newState.guild, current.channelId, {
           selfMute: current.selfMute,
           selfDeaf: current.selfDeaf
         }).catch(() => null);
@@ -227,7 +327,7 @@ function describeError(error) {
  */
 export function listVoiceChannels(guild, botMember) {
   return guild.channels.cache
-    .filter((channel) => channel.type === 2)   // 2 = ses kanalı
+    .filter((channel) => channel.type === CHANNEL_TYPE.voice || channel.type === CHANNEL_TYPE.stageVoice)
     .map((channel) => {
       let members = 0;
       try {
@@ -263,12 +363,25 @@ export function resolveVoiceChannelId(guild, input) {
   const value = String(input).trim();
 
   const byId = guild.channels.cache.get(value);
-  if (byId?.type === 2) return byId.id;
+  if (byId && (byId.type === CHANNEL_TYPE.voice || byId.type === CHANNEL_TYPE.stageVoice)) {
+    return byId.id;
+  }
 
   const byName = guild.channels.cache.find((channel) =>
-    channel.type === 2 && channel.name.toLowerCase() === value.toLowerCase()
+    (channel.type === CHANNEL_TYPE.voice || channel.type === CHANNEL_TYPE.stageVoice) &&
+    channel.name.toLowerCase() === value.toLowerCase()
   );
   return byName?.id || '';
 }
 
-export { Events };
+/* --- Discord kanal tipleri (GuildChannelType) --- */
+const CHANNEL_TYPE = {
+  text: 0,
+  voice: 2,          // ses kanalı
+  category: 4,
+  stageVoice: 13,    // sesli sahne
+  thread: 11,
+  forum: 15
+};
+
+export { CHANNEL_TYPE, Events };

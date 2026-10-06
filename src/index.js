@@ -1,5 +1,6 @@
 import { Client, GatewayIntentBits, Partials, Collection, Events, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import fs from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL as toFileUrl } from 'node:url';
 
@@ -311,7 +312,7 @@ client.on(Events.GuildDelete, async (guild) => {
  * ------------------------------------------------------------------ */
 
 client.on(Events.VoiceStateUpdate, (oldState, newState) => {
-  handleVoiceStateUpdate(oldState, newState);
+  handleVoiceStateUpdate(client, oldState, newState);
 });
 
 client.on(Events.ChannelDelete, (channel) => {
@@ -324,7 +325,7 @@ async function joinConfiguredVoiceChannels() {
     const settings = getGuildSettings(client, guild.id);
     if (!settings.voice?.enabled || !settings.voice.channelId) continue;
 
-    const result = await joinVoiceChannel(guild, settings.voice.channelId, {
+    const result = await joinVoiceChannel(client, guild, settings.voice.channelId, {
       selfMute: settings.voice.selfMute,
       selfDeaf: settings.voice.selfDeaf
     }).catch(() => ({ ok: false, error: 'bilinmiyor' }));
@@ -383,7 +384,29 @@ function startDashboard() {
 
 async function boot() {
   if (!config.token) {
-    console.error('❌ .env dosyasında DISCORD_TOKEN eksik.');
+    /* Panel ortamı .env dosyası olmadan çalışır (dosya .gitignore'da).
+       Bu yüzden hatayı "dosyada eksik" diye değil, "ortam değişkeninde
+       tanımlı değil" diye bildiriyoruz — yoksa kullanıcı panele bakıp
+       dosya arıyor ve zaman kaybediyor. */
+    const hasEnvFile = existsSync(path.join(__dirname, '..', '.env'));
+
+    console.error('');
+    console.error('❌ DISCORD_TOKEN ortam değişkeni tanımlı değil.');
+    console.error('');
+    if (hasEnvFile) {
+      console.error('   .env dosyası var ama içinde DISCORD_TOKEN yok veya boş.');
+      console.error('   Dosya: ' + path.join(__dirname, '..', '.env'));
+    } else {
+      console.error('   Bu bir .env dosyası değil — panel ortamı.');
+      console.error('   .gitignore .env dosyasını depoya koymaz, panelde bulamazsın.');
+      console.error('   Panel > Environment Variables bölümüne şu değerleri ekle:');
+    }
+    console.error('');
+    console.error('   DISCORD_TOKEN=...');
+    console.error('   CLIENT_ID=...');
+    console.error('   GUILD_ID=...');
+    console.error('   OWNER_ID=...');
+    console.error('');
     process.exit(1);
   }
 
