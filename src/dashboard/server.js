@@ -153,6 +153,77 @@ async function handleRequest(client, req, res) {
   const flash = readFlash(cookies);
   const clearFlash = { 'Set-Cookie': `${FLASH_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` };
 
+  /* --- Yedekleme ---
+     Render ücretsiz planda disk kalıcı değil; her deploy'da data/ siliniyor.
+     Bu rotalar ayarları JSON olarak indirip geri yüklemeyi sağlar. */
+
+  if (url.pathname === '/yedek') {
+    const { readAllSettings, readBotProfile } = await import('../store.js');
+    const saved = await readAllSettings();
+    const profile = await readBotProfile();
+
+    const guilds = Object.keys(saved).map((id) => ({
+      id,
+      name: client.guilds.cache.get(id)?.name || 'Bilinmeyen sunucu',
+      guildId: client.guilds.cache.has(id) ? id : null
+    }));
+
+    /* Beyaz liste tip bazlı bir nesne (spamming/mentions/... altında
+       users, roles, channels dizileri var), düz dizi değil. Sayarken
+       içindeki gerçek girdileri topluyoruz. */
+    const counts = {
+      guilds: guilds.length,
+      whitelist: Object.values(saved).reduce((total, s) => {
+        for (const group of Object.values(s.whitelist || {})) {
+          if (Array.isArray(group)) total += group.length;
+          else if (group && typeof group === 'object') {
+            for (const list of Object.values(group)) {
+              if (Array.isArray(list)) total += list.length;
+            }
+          }
+        }
+        return total;
+      }, 0),
+      logChannels: Object.values(saved).filter((s) => s.general?.logChannelId).length,
+      profile: Boolean(profile)
+    };
+
+    const html = views.layout({
+      title: 'Yedekle',
+      activeSection: 'backup',
+      sections: SECTIONS,
+      body: views.backupPage({
+        guilds, counts,
+        savedAt: new Date().toLocaleString('tr-TR'),
+        lastImport: null
+      }),
+      session,
+      flash
+    });
+    return send(res, 200, html, flash ? clearFlash : {});
+  }
+
+  if (url.pathname === '/api/backup/download') {
+    const { readAllSettings, readBotProfile } = await import('../store.js');
+    const payload = {
+      kind: 'guard-bot-settings',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings: await readAllSettings(),
+      profile: await readBotProfile()
+    };
+
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    return send(res, 200, JSON.stringify(payload, null, 2), {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="guard-bot-ayarlar-${stamp}.json"`
+    });
+  }
+
+  if (url.pathname === '/api/backup/restore' && req.method === 'POST') {
+    return handleBackupRestore(client, req, res);
+  }
+
   /* --- Ayarlar sayfaları --- */
   const sectionMatch = url.pathname.match(/^\/s\/([a-z]+)$/);
   if (sectionMatch) {
@@ -872,6 +943,88 @@ function isBotRoleTop(guild) {
     .sort((a, b) => b.position - a.position)[0];
   if (!highest) return false;
   return me.roles.highest.comparePositionTo(highest) > 0;
+}
+
+/**
+ * Yedekten ayarları geri yükler.
+ *
+ * Dikkat: gelen veri kullanıcıdan geldiği için hiçbir alana körü körüne
+ * güvenmiyoruz. withDefaults() bilinmeyen anahtarları düşürür, eksik alanları
+ * varsayılana tamamlar; böylece hem ayar kaybı olmaz hem de bozuk veri
+ * sistemin içine sızmaz.
+ */
+async function handleBackupRestore(client, req, res) {
+  const { withDefaults, writeAllSettings, flushPendingWrites, readAllSettings,
+    saveBotProfile, createDefaultBotProfile } = await import('../store.js');
+
+  const redirect = { Location: '/yedek' };
+
+  let payload;
+  try {
+    const form = new URLSearchParams(await readBody(req));
+    payload = JSON.parse(form.get('payload') || '');
+  } catch {
+    return send(res, 400,
+      '<h1>Okunamadı</h1><p>Yapıştırdığın metin geçerli JSON değil. ' +
+      '<a href="/yedek">Geri dön</a></p>');
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return send(res, 400, '<h1>Geçersiz</h1><p>Yedek dosyası boş.</p>');
+  }
+
+  if (payload.kind !== 'guard-bot-settings') {
+    return send(res, 400,
+      '<h1>Yanlış dosya</h1><p>Bu bir guard bot yedeği değil ' +
+      '(kind: guard-bot-settings olmalı).</p>');
+  }
+
+  const rawSettings = payload.settings;
+  if (!rawSettings || typeof rawSettings !== 'object' || Array.isArray(rawSettings)) {
+    return send(res, 400, '<h1>Geçersiz</h1><p>settings alanı eksik.</p>');
+  }
+
+  /* Mevcut ayarların yedeği — geri yükleme bozulursa veri kaybolmasın. */
+  const previous = await readAllSettings();
+  try {
+    const { saveBackup } = await import('../store.js');
+    await saveBackup('_restore-safety', { settings: previous, at: Date.now() }, 3);
+  } catch {
+    // Yedek alamadıysak da geri yüklemeye devam et; kritik olan kayıp olmaması.
+  }
+
+  const cleaned = {};
+  let count = 0;
+  for (const [guildId, settings] of Object.entries(rawSettings)) {
+    if (!/^\d{15,25}$/.test(guildId)) continue;
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) continue;
+    cleaned[guildId] = withDefaults(settings);
+    count++;
+  }
+
+  if (count === 0) {
+    return send(res, 400, '<h1>Geçersiz</h1><p>Dosyada geçerli sunucu kaydı yok.</p>');
+  }
+
+  /* Belleği güncelle: koruma sistemleri anında yeni ayarları kullansın. */
+  client.guardSettings.clear();
+  for (const [guildId, settings] of Object.entries(cleaned)) {
+    client.guardSettings.set(guildId, settings);
+  }
+
+  writeAllSettings(cleaned);
+  await flushPendingWrites();
+
+  if (payload.profile && typeof payload.profile === 'object') {
+    await saveBotProfile({ ...createDefaultBotProfile(), ...payload.profile });
+  }
+
+  console.log(`💾 Yedek geri yüklendi: ${count} sunucu`);
+
+  return send(res, 302, '', {
+    ...redirect,
+    'Set-Cookie': flashCookie('ok', `${count} sunucunun ayarları geri yüklendi.`)
+  });
 }
 
 function readBody(req) {

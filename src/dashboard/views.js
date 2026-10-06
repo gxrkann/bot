@@ -75,7 +75,12 @@ export function layout({ title, activeSection, sections, body, session, flash })
         <div class="brand-sub">Koruma paneli</div>
       </div>
     </div>
-    <nav class="nav">${nav}</nav>
+    <nav class="nav">${nav}
+      <a class="nav-item ${activeSection === 'backup' ? 'active' : ''}" href="/yedek">
+        <span class="nav-icon">💾</span>
+        <span>Yedekle</span>
+      </a>
+    </nav>
     <div class="sidebar-footer">
       <div class="user-chip">
         <img src="https://cdn.discordapp.com/avatars/${esc(session.avatar || 0)}/${esc(session.avatar || 'index')}.png" alt="" class="avatar" onerror="this.src='/static/avatar.svg'">
@@ -768,6 +773,75 @@ export function voicePage({ section, settings, state, channels, permissions }) {
           </tbody>
         </table>
       </div>` : ''}`;
+}
+
+/**
+ * Yedekleme / geri yükleme sayfası.
+ *
+ * Render gibi ortamlarda disk kalıcı değildir: her deploy'da data/ silinir
+ * ve ayarlar varsayılanlara döner. Kullanıcının ayarlarını kaybetmemesi için
+ * JSON indirip geri yükleyebilmesi gerekiyor.
+ */
+export function backupPage({ guilds, counts, savedAt, lastImport }) {
+  const guildRows = guilds.length
+    ? guilds.map((guild) => `
+        <tr>
+          <td><strong>${esc(guild.name)}</strong></td>
+          <td><code>${esc(guild.id)}</code></td>
+          <td>${guild.guildId ? '<span class="pill pill-on">bu botta</span>' : '<span class="pill pill-off">diğer sunucu</span>'}</td>
+        </tr>`).join('')
+    : '<tr><td colspan="3">Yedeklenecek sunucu yok.</td></tr>';
+
+  return `
+    <header class="section-header">
+      <h1><span class="section-icon">💾</span> Yedekle</h1>
+      <p class="section-desc">Ayarlarını JSON olarak indir, istediğin zaman geri yükle.</p>
+    </header>
+
+    <div class="alert alert-warn">
+      <strong>Bunu neden yapıyoruz?</strong>
+      <p>Render'ın ücretsiz planında disk kalıcı değil. Her yeni deploy, restart veya
+      uykuya dönüşte <code>data/</code> klasörü silinir ve ayarların varsayılana döner.
+      Bu sayfa sayesinde kaybettiğin ayarları 10 saniyede geri getirebilirsin.</p>
+    </div>
+
+    <div class="card">
+      <h2>1. Yedeği indir</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+        Tüm sunucu ayarların ve bot profilin (avatar, banner, oyun adı) tek dosyada.
+      </p>
+      <a class="btn btn-primary" href="/api/backup/download">⬇️ JSON indir</a>
+      ${savedAt ? `<p style="font-size:12px;opacity:.7;margin-top:10px">Son yedek alındı: ${esc(savedAt)}</p>` : ''}
+    </div>
+
+    <div class="card">
+      <h2>2. Yedeği geri yükle</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+        JSON dosyasını aç, içeriğini aşağıya yapıştır. Mevcut ayarların tamamı
+        bununla değiştirilir.
+      </p>
+      <form method="post" action="/api/backup/restore">
+        <textarea name="payload" rows="10" required spellcheck="false"
+                  placeholder='{ "kind": "guard-bot-settings", ... }'
+                  style="width:100%;padding:12px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font-family:ui-monospace,Consolas,monospace;font-size:12px;margin-bottom:12px"></textarea>
+        <button class="btn btn-primary" type="submit">⬆️ Geri yükle</button>
+      </form>
+      ${lastImport ? `<p style="font-size:12px;opacity:.7;margin-top:10px">Son geri yükleme: ${esc(lastImport)}</p>` : ''}
+    </div>
+
+    <div class="card">
+      <h2>Yedekte ne var</h2>
+      <div class="stats-grid">
+        <div><strong>${counts.guilds}</strong><span>sunucu</span></div>
+        <div><strong>${counts.whitelist}</strong><span>beyaz liste</span></div>
+        <div><strong>${counts.logChannels}</strong><span>log kanalı</span></div>
+        <div><strong>${counts.profile ? 'var' : 'yok'}</strong><span>bot profili</span></div>
+      </div>
+      <table class="table" style="margin-top:16px">
+        <thead><tr><th>Sunucu</th><th>ID</th><th>Durum</th></tr></thead>
+        <tbody>${guildRows}</tbody>
+      </table>
+    </div>`;
 }
 
 /** Yalnızca bölüm başlığı (hata sayfaları için). */
