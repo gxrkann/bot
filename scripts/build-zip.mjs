@@ -193,16 +193,31 @@ async function main() {
   const files = await collectFiles(patterns);
 
   /* .env dosyası .discloudignore'da olduğu için listede yok.
-     --with-env verildiyse elle ekliyoruz. */
+     --with-env verildiyse elle ekliyoruz.
+
+     İKİ İSİMLE ekliyoruz:
+       .env     — normal davranış, çoğu panel sorunsuz çıkarır
+       env.txt  — paneller güvenlik gereği nokta dosyalarını atıyor;
+                  bu dosya aynı içerikle nokta olmadan duruyor
+
+     src/config.js ikisini de okuyor. */
   if (WITH_ENV) {
     const envPath = path.join(rootDir, '.env');
+    let envBody;
     try {
-      await fsp.access(envPath);
-      files.push({ absolute: envPath, relative: '.env' });
+      envBody = await fsp.readFile(envPath);
     } catch {
       console.error('❌ --with-env verildi ama kökte .env dosyası yok.');
       process.exit(1);
     }
+
+    files.push({ absolute: envPath, relative: '.env' });
+
+    /* env.txt'yi gerçekten yazmamız gerekiyor: içerik aynı olsa da
+       kökte böyle bir dosya yok. Geçici dosya üzerinden ekleyeceğiz. */
+    const envTxtPath = path.join(distDir, '.env-temp');
+    await fsp.writeFile(envTxtPath, envBody);
+    files.push({ absolute: envTxtPath, relative: 'env.txt', temporary: true });
   }
 
   /* Güvenlik kontrolü: paket içinde .env olmamalı (izin verilmedikçe). */
@@ -231,6 +246,9 @@ async function main() {
 
   const outputPath = path.join(distDir, WITH_ENV ? 'guard-bot-with-env.zip' : 'guard-bot.zip');
   const size = await createZip(files, outputPath);
+
+  /* Geçici env.txt'yi temizle. */
+  await fsp.rm(path.join(distDir, '.env-temp'), { force: true });
 
   console.log(`\n✅ Hazır: ${path.relative(rootDir, outputPath)}`);
   console.log(`   boyut: ${(size / 1024).toFixed(1)} KB`);

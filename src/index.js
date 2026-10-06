@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL as toFileUrl } from 'node:url';
 
-import { config } from './config.js';
+import { config, envSource } from './config.js';
 import {
   getGuildSettings, saveGuildSettings, deleteGuildSettings,
   parseSuspectActionId, isReviewAuthorized, removeSuspect, getActionableReasons, evaluateMember
@@ -461,7 +461,13 @@ function reportEnv() {
   const present = REQUIRED_ENV.filter((key) => process.env[key] !== undefined && process.env[key] !== '');
   const missing = REQUIRED_ENV.filter((key) => !present.includes(key));
 
+  /* Token hangi dosyadan geldi? Panelde hiçbir dosya yoksa bu satır
+     "tokenı panelden girmen gerekiyor" der. Tek bakışta teşhis. */
+  const hasToken = Boolean(config.token);
+  const source = envSource.file;
+
   console.log('🔧 Ortam değişkenleri (değerler yazdırılmaz):');
+  console.log(`   kaynak: ${source ? source : 'yalnızca process.env (panel)'}`);
   if (present.length === 0) {
     console.log('   HİÇBİRİ YOK — bot dışarıdan hiçbir ayar almamış.');
   } else {
@@ -472,6 +478,14 @@ function reportEnv() {
   }
   if (missing.length) {
     console.log(`   tanımsız: ${missing.join(', ')}`);
+  }
+
+  /* Token varsa şekil kontrolü: geçersiz bir token Discord'a bağlanırken
+     "An invalid token was provided" hatası verir ve nedenini anlamak
+     zor olur. Burada önceden söylüyoruz. */
+  if (hasToken && !/^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}$/.test(config.token)) {
+    console.log('   ⚠️ DISCORD_TOKEN bir Discord bot token\'ı gibi görünmüyor.');
+    console.log('      Tırnak, boşluk veya satır sonu kalmış olabilir.');
   }
   console.log('');
 }
@@ -497,14 +511,19 @@ async function boot() {
       console.error('     DISCORD_TOKEN=buraya_tokenin');
     } else if (onPanel) {
       console.error('   Konum: panel (çalışma dizininde .env dosyası yok).');
-      console.error('   .gitignore .env dosyasını depoya koymaz; ZIP\'e de girmiyor.');
-      console.error('   Bu yüzden panelde Environment Variables bölümünden girilmeli.');
+      console.error('   Panelde Environment Variables bölümünden girilmeli.');
       console.error('');
-      console.error('   Ayrıca başlangıç komutun doğru mu? Şu olmalı:');
-      console.error('     npm install && node src/index.js');
+      console.error('   Panel ortam değişkeni yoksa iki seçenek var:');
       console.error('');
-      console.error('   Emin değilsen .env içeren paketi yükle (dist/guard-bot-with-env.zip),');
-      console.error('   o zaman panelden hiçbir şey girmen gerekmez.');
+      console.error('   A) Panelde Environment Variables bölümüne yukarıdaki değerleri');
+      console.error('      ekle. En temiz yol.');
+      console.error('');
+      console.error('   B) dist/guard-bot-with-env.zip dosyasını yükle.');
+      console.error('      Bu pakette env.txt dosyası da var (paneller nokta ile');
+      console.error('      başlayan .env dosyasını çıkarırken atabiliyor).');
+      console.error('');
+      console.error('   Kontrol: konsoldaki "kaynak:" satırı .env / env.txt');
+      console.error('   gösteriyorsa dosya bulundu demektir.');
     }
 
     console.error('');
@@ -521,7 +540,42 @@ async function boot() {
   const count = await loadPersistedSettings();
   console.log(`💾 ${count} sunucunun ayarı yüklendi.`);
 
-  await client.login(config.token);
+  /* Discord'a bağlanma hatasını düz cümleye çeviriyoruz. discord.js
+     ham hata kodları veriyor ("TokenInvalid", "An invalid token was
+     provided") ve bunların ne anlama geldiğini ayırmak zaman alıyor. */
+  try {
+    await client.login(config.token);
+  } catch (error) {
+    const code = error?.code || '';
+    console.error('');
+    console.error(`❌ Discord'a bağlanılamadı — Guard Bot v${VERSION}`);
+    console.error('');
+
+    if (code === 'TokenInvalid') {
+      console.error('   Sorun: token geçersiz.');
+      console.error('   Portal\'da token\'ı kopyalarken satır sonu veya boşluk');
+      console.error('   girdiyse düzelt. Emin değilsen token\'ı yeniden üret:');
+      console.error('     Developer Portal → Bot → Reset Token');
+    } else if (code === 'TokenMissing') {
+      console.error('   Sorun: token boş.');
+    } else if (code === 'DisallowedIntents') {
+      console.error('   Sorun: bir intent panelde açık değil.');
+      console.error('   Developer Portal → Bot → Privileged Gateway Intents:');
+      console.error('     Server Members Intent   → aç');
+      console.error('     Message Content Intent  → aç');
+      console.error('     Server Voice Intents    → aç');
+    } else if (code === 'WSRateLimited' || String(code).includes('429')) {
+      console.error('   Sorun: Discord bağlantıyı sınırlandırdı.');
+      console.error('   Panelde aynı anda iki kopya çalışıyor olabilir.');
+    } else if (code === 'ENOTFOUND' || code === 'ECONNREFUSED') {
+      console.error('   Sorun: Discord\'a ulaşılamıyor (panel ağ kısıtı olabilir).');
+    } else {
+      console.error(`   Discord hatası: ${error.message}`);
+    }
+
+    console.error('');
+    process.exit(1);
+  }
 
   if (process.env.DASHBOARD_ENABLED !== 'false') {
     startDashboard();
