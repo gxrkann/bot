@@ -5,6 +5,10 @@
 node_modules/
 npm-debug.log*
 
+# Panel kurulum dosyalari (gizli anahtar icerir, sadece senin bilgisayarinda)
+PANEL-COMMAND.txt
+PANEL-ENV.txt
+
 # Paketleme ciktilari: ZIP kendini icine almamali
 dist/
 build/

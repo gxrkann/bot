@@ -509,30 +509,28 @@ async function boot() {
       console.error(`   Dosya: ${envFile}`);
       console.error('   Satır şu şekilde olmalı (tırnak/boşluk yok):');
       console.error('     DISCORD_TOKEN=buraya_tokenin');
-    } else if (onPanel) {
+    } else {
+      /* Panelde çalışıyor ve ortam değişkeni yok.
+         Panellerde tek ayarlanabilir yer çoğu zaman "başlangıç komutu".
+         Oraya export'ları gömerek çözüm sunuyoruz: token ne ZIP'e girer
+         ne de depoya. Kullanıcı tek satırı kopyalamak zorunda. */
       console.error('   Konum: panel (çalışma dizininde .env dosyası yok).');
-      console.error('   Panelde Environment Variables bölümünden girilmeli.');
       console.error('');
-      console.error('   Panel ortam değişkeni yoksa iki seçenek var:');
+      console.error('   ÇÖZÜM — paneldeki başlangıç komutunu şu satırla değiştir:');
       console.error('');
-      console.error('   A) Panelde Environment Variables bölümüne yukarıdaki değerleri');
-      console.error('      ekle. En temiz yol.');
+      console.error('   export DISCORD_TOKEN=<token> && export CLIENT_ID=1556800308422643802 \\');
+      console.error('     && export GUILD_ID=1555388276779782214 \\');
+      console.error('     && export OWNER_ID=281867375626813470 \\');
+      console.error('     && export DASHBOARD_PASSWORD=gZ7Q2pLZ8oav \\');
+      console.error('     && npm install && exec node src/index.js');
       console.error('');
-      console.error('   B) dist/guard-bot-with-env.zip dosyasını yükle.');
-      console.error('      Bu pakette env.txt dosyası da var (paneller nokta ile');
-      console.error('      başlayan .env dosyasını çıkarırken atabiliyor).');
+      console.error('   Hazır hali PANEL-COMMAND.txt dosyasında.');
       console.error('');
-      console.error('   Kontrol: konsoldaki "kaynak:" satırı .env / env.txt');
-      console.error('   gösteriyorsa dosya bulundu demektir.');
+      console.error('   Panelde ortam değişkeni alanı varsa daha kısa yol:');
+      console.error('     DISCORD_TOKEN, CLIENT_ID, GUILD_ID, OWNER_ID,');
+      console.error('     DASHBOARD_PASSWORD  →  5 satır ekle.');
     }
 
-    console.error('');
-    console.error('   Değerler:');
-    console.error('     DISCORD_TOKEN      = bot token\'ın');
-    console.error('     CLIENT_ID          = 1556800308422643802');
-    console.error('     GUILD_ID           = 1555388276779782214');
-    console.error('     OWNER_ID           = 281867375626813470');
-    console.error('     DASHBOARD_PASSWORD = gZ7Q2pLZ8oav');
     console.error('');
     process.exit(1);
   }

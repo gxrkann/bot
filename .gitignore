@@ -9,6 +9,7 @@
 # Panelde elle girilecek degerler (token icerir) - asla depoya girmez
 env.txt
 PANEL-ENV.txt
+PANEL-COMMAND.txt
 
 # ===== Bagimliliklar =====
 node_modules/
