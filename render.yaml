@@ -1,0 +1,53 @@
+# Render Blueprint — tek tıkla deploy
+#
+# Kullanım:
+#   Render Dashboard → New → Blueprint
+#   Repository: gxrkann/bot
+#   Render bu dosyayı okuyup servisi otomatik kurar.
+#
+# Veya: New → Web Service → Connect repo → ayarları elle gir.
+
+services:
+  - type: web
+    name: guard-bot
+    runtime: node
+    plan: free
+    region: frankfurt
+
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/index.js
+
+    # Render hangi portu kullanacağını PORT ile bildiriyor; kod okuyor.
+    healthCheckPath: /ping
+
+    envVars:
+      - key: NODE_VERSION
+        value: "24.21.0"
+
+      # ---- Zorunlu: panelden girilmesi gerekenler ----
+      # GitHub'a gömülmemeleri için .env dosyasında tutulur.
+      # Render Dashboard > Environment Variables bölümünden ekle.
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+
+      # ---- Bot davranışı ----
+      - key: BOT_NAME
+        value: Shyzam Guard
+      - key: DASHBOARD_ENABLED
+        value: "true"
+
+      # ---- Intent'ler (Discord Portal'da da açık olmalı) ----
+      - key: ENABLE_MESSAGE_CONTENT_INTENT
+        value: "true"
+      - key: ENABLE_GUILD_MEMBERS_INTENT
+        value: "true"
+      - key: ENABLE_VOICE_STATES_INTENT
+        value: "true"
