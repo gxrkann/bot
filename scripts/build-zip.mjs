@@ -1,17 +1,15 @@
 /**
  * Discloud / bot-hosting dağıtım paketi oluşturur.
  *
- * Kullanım:
- *   node scripts/build-zip.mjs              → .env'siz paket (önerilen)
- *   node scripts/build-zip.mjs --with-env   → .env dosyası da pakette
- *
- * Çıktı: dist/guard-bot.zip  (veya dist/guard-bot-with-env.zip)
+ * Kullanım:  node scripts/build-zip.mjs
+ * Çıktı:     dist/guard-bot.zip
  *
  * .discloudignore kurallarına göre dosyaları dışarıda bırakır ve ZIP'e paketler.
  *
- * GÜVENLİK: normal pakette .env HİÇBİR ZAMAN girmez; token platforma
- * panelden girilir. --with-env yalnızca panelde ortam değişkeni
- * ayarlanamıyorsa kullanılır ve ayrı bir dosya adıyla üretilir, karışmasın.
+ * GÜVENLİK: .env ve env.txt pakete HİÇBİR ZAMAN girmez. Token panelde
+ * Environment Variables bölümünden girilir. (Token'ı ZIP'e gömmeyi denedik:
+ * hem gizli anahtar sızdı hem paneller nokta dosyalarını attığı için
+ * işe yaramadı.)
  */
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -21,8 +19,6 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, '..');
 const distDir = path.join(rootDir, 'dist');
-
-const WITH_ENV = process.argv.includes('--with-env');
 
 /* ------------------------------------------------------------------ *
  * .discloudignore okuma
@@ -192,39 +188,21 @@ async function main() {
   const patterns = await loadIgnorePatterns();
   const files = await collectFiles(patterns);
 
-  /* .env dosyası .discloudignore'da olduğu için listede yok.
-     --with-env verildiyse elle ekliyoruz.
+  /* .env ASLA pakete girmiyor.
 
-     İKİ İSİMLE ekliyoruz:
-       .env     — normal davranış, çoğu panel sorunsuz çıkarır
-       env.txt  — paneller güvenlik gereği nokta dosyalarını atıyor;
-                  bu dosya aynı içerikle nokta olmadan duruyor
+     Bu konuda iki deneme yapıldı ve ikisi de yanlış yerdi: token'ı
+     ZIP'e gömmek, (a) paketi ele geçiren birine token'ı veriyordu,
+     (b) paneller nokta dosyalarını zaten çıkarıyordu.
 
-     src/config.js ikisini de okuyor. */
-  if (WITH_ENV) {
-    const envPath = path.join(rootDir, '.env');
-    let envBody;
-    try {
-      envBody = await fsp.readFile(envPath);
-    } catch {
-      console.error('❌ --with-env verildi ama kökte .env dosyası yok.');
-      process.exit(1);
-    }
-
-    files.push({ absolute: envPath, relative: '.env' });
-
-    /* env.txt'yi gerçekten yazmamız gerekiyor: içerik aynı olsa da
-       kökte böyle bir dosya yok. Geçici dosya üzerinden ekleyeceğiz. */
-    const envTxtPath = path.join(distDir, '.env-temp');
-    await fsp.writeFile(envTxtPath, envBody);
-    files.push({ absolute: envTxtPath, relative: 'env.txt', temporary: true });
-  }
+     Doğru yol tek: panelde Environment Variables bölümüne girmek.
+     .env yerelde geliştirme için var, dağıtımda kullanılmıyor. */
 
   /* Güvenlik kontrolü: paket içinde .env olmamalı (izin verilmedikçe). */
+  /* Güvenlik: hiçbir koşulda gizli anahtar pakete giremez.
+     WITH_ENV seçeneği tamamen kaldırıldı. */
   const leaked = files.filter((file) =>
-    /(^|\/)\.env($|\.)/.test(file.relative) &&
-    !file.relative.endsWith('.env.example') &&
-    !(WITH_ENV && file.relative === '.env')
+    /(^|\/)(\.env|env\.txt)$/.test(file.relative) ||
+    (/(^|\/)\.env\./.test(file.relative) && !file.relative.endsWith('.env.example'))
   );
   if (leaked.length) {
     console.error('❌ Pakete sızması gereken dosya var, iptal ediliyor:');
@@ -244,45 +222,28 @@ async function main() {
     console.log(`   ${file.relative}`);
   }
 
-  const outputPath = path.join(distDir, WITH_ENV ? 'guard-bot-with-env.zip' : 'guard-bot.zip');
+  const outputPath = path.join(distDir, 'guard-bot.zip');
   const size = await createZip(files, outputPath);
-
-  /* Geçici env.txt'yi temizle. */
-  await fsp.rm(path.join(distDir, '.env-temp'), { force: true });
 
   console.log(`\n✅ Hazır: ${path.relative(rootDir, outputPath)}`);
   console.log(`   boyut: ${(size / 1024).toFixed(1)} KB`);
   console.log(`   dosya sayısı: ${files.length}`);
 
-  if (WITH_ENV) {
-    console.log('\n📌 Bu pakette .env dosyası VAR (yalnızca panelde ortam');
-    console.log('   değişkeni ayarlayamıyorsan kullan). Panelde şunları yap:');
-    console.log('   1. ZIP dosyasını yükle');
-    console.log('   2. Restart');
-    console.log('   3. Yüklediğin ZIP dosyasını bilgisayarından SİL (token içeriyor)');
-    console.log('');
-    console.log('   Panelde ortam değişkeni girebiliyorsan normal ZIP\'i kullan,');
-    console.log('   bu pakete gerek yok.');
-    return;
-  }
-
-  console.log('\n📌 Yükleme adımları:');
-  console.log('   1. Bu ZIP dosyasını panele yükle (bot-hosting.net veya Render)');
-  console.log('   2. Environment Variables bölümüne şunları gir:');
-  console.log('      DISCORD_TOKEN      = bot token\'ın');
+  console.log('\n📌 Panele kurulum (3 adım):');
+  console.log('   1. Bu ZIP dosyasını yükle.');
+  console.log('   2. Environment Variables bölümüne 5 satır ekle:');
+  console.log('');
+  console.log('      DISCORD_TOKEN      = <bot token>');
   console.log('      CLIENT_ID          = 1556800308422643802');
   console.log('      GUILD_ID           = 1555388276779782214');
   console.log('      OWNER_ID           = 281867375626813470');
   console.log('      DASHBOARD_PASSWORD = gZ7Q2pLZ8oav');
-  console.log('      DASHBOARD_ENABLED  = true');
-  console.log('   3. Restart / Redeploy');
   console.log('');
-  console.log('   Panelde ortam değişkeni ayarlayamıyorsan:');
-  console.log('      node scripts/build-zip.mjs --with-env');
-  console.log('   çalıştır, çıkan guard-bot-with-env.zip dosyasını yükle.');
+  console.log('   3. Restart.');
   console.log('');
-  console.log('   Not: .env dosyası bu pakete dahil değil (gizli anahtarlar');
-  console.log('   depoya gitmez). Panelden girmen gerekiyor.');
+  console.log('   2. adım atlanırsa bot açılmaz — token panelden gelmek zorunda,');
+  console.log('   ZIP içinde gönderilmiyor. Panelde "Environment" ya da "Env"');
+  console.log('   ya da "Variables" yazan bir yer araman gerekiyor.');
 }
 
 main().catch((error) => {

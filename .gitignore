@@ -6,6 +6,10 @@
 # Sifreli .env yedegi - parola olmadan ise yaramaz ama depoya girmemeli
 .env.enc
 
+# Panelde elle girilecek degerler (token icerir) - asla depoya girmez
+env.txt
+PANEL-ENV.txt
+
 # ===== Bagimliliklar =====
 node_modules/
 .pnp
