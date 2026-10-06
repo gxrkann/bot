@@ -24,7 +24,7 @@ import * as views from './views.js';
 import {
   getOAuthConfig, getAllowedIds, isAllowed, createState, consumeState,
   authorizeUrl, exchangeCode, createSession, getSession, destroySession,
-  parseCookies, sessionCookie, clearCookie, resolveRedirectUri
+  parseCookies, sessionCookie, clearCookie, resolveRedirectUri, guessRedirectUri
 } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,10 +66,11 @@ async function handleRequest(client, req, res) {
   const cookies = parseCookies(req.headers.cookie);
 
   /* Panel arkasındayken gerçek adres x-forwarded-* başlıklarında gelir.
-     Bunu OAuth redirect URI tahmininde kullanıyoruz. */
+     Bunu giriş sayfasında ipucu olarak göstermek için kullanıyoruz. */
   const forwardedProto = firstHeader(req.headers['x-forwarded-proto']);
   const forwardedHost = firstHeader(req.headers['x-forwarded-host']) || req.headers.host;
-  const redirectUri = resolveRedirectUri(forwardedHost, forwardedProto);
+  const redirectUri = resolveRedirectUri();
+  const guessedUri = guessRedirectUri(forwardedHost, forwardedProto);
 
   /* --- Statik dosyalar --- */
   if (url.pathname.startsWith('/static/')) {
@@ -80,6 +81,11 @@ async function handleRequest(client, req, res) {
   if (url.pathname === '/favicon.ico') {
     res.writeHead(204).end();
     return;
+  }
+
+  /* Giriş sayfası: OAuth ayarları ve olası eşleşme ipuçları. */
+  if (url.pathname === '/giris') {
+    return handleLoginInfo(client, req, res, redirectUri, guessedUri);
   }
 
   /* --- OAuth --- */
@@ -236,7 +242,38 @@ async function handleRequest(client, req, res) {
  * OAuth
  * ------------------------------------------------------------------ */
 
-function handleLogin(req, res, redirectUri) {
+/* Giriş sayfası: eşleşmeyen redirect URI durumunda kullanıcı ne yapması
+   gerektiğini görebilmeli. Panel arkasında tahmin edilen adresi gösteriyoruz. */
+function handleLoginInfo(client, req, res, redirectUri, guessedUri) {
+  const config = getOAuthConfig();
+  const notes = [];
+
+  if (!config) {
+    return send(res, 200, views.loginPage({
+      error: 'Dashboard OAuth yapılandırılmamış.',
+      hasDiscordLink: false
+    }));
+  }
+
+  if (!getAllowedIds().length) {
+    return send(res, 403, views.loginPage({
+      error: 'DASHBOARD_ALLOWED_IDS boş. Panele kimse erişemez (güvenlik için kapalı).',
+      hasDiscordLink: false
+    }));
+  }
+
+  if (!redirectUri && guessedUri && !guessedUri.startsWith('http://localhost')) {
+    notes.push(
+      'Bu bot bir reverse proxy arkasında çalışıyor gibi görünüyor. ' +
+      'Discord Developer Portal > OAuth2 > Redirect URLs bölümüne şu adresi ekle:',
+      guessedUri
+    );
+  }
+
+  return send(res, 200, views.loginPage({ hasDiscordLink: true, notes }));
+}
+
+function handleLogin(req, res, redirectUri, guessedUri) {
   const config = getOAuthConfig();
   if (!config) {
     return send(res, 200, views.loginPage({
@@ -252,9 +289,7 @@ function handleLogin(req, res, redirectUri) {
   }
   const state = createState('/');
   send(res, 302, '', { Location: authorizeUrl(state, redirectUri) });
-}
-
-async function handleCallback(client, req, res, url, redirectUri) {
+}async function handleCallback(client, req, res, url, redirectUri) {
   const config = getOAuthConfig();
   if (!config) return send(res, 500, '<h1>OAuth yapılandırılmamış</h1>');
 

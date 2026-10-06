@@ -47,20 +47,21 @@ export function getOAuthConfig() {
  * @param {string} hostHeader  req.headers.host
  * @param {string} [forwardedProto] x-forwarded-proto başlığı
  */
-export function guessRedirectUri(hostHeader, forwardedProto) {
-  if (!hostHeader) return '';
-  // Host başlığındaki portu temizle (443 varsayılan olduğu için).
-  const host = String(hostHeader).replace(/:\d+$/, '');
-  const protocol = forwardedProto || (process.env.DASHBOARD_TRUST_PROXY === 'true' ? 'https' : 'http');
-  return `${protocol}://${host}/auth/callback`;
-}
-
-/** Etkin redirect URI: elle ayarlanmış varsa o, yoksa istekten tahmin. */
-export function resolveRedirectUri(hostHeader, forwardedProto) {
+export function resolveRedirectUri() {
   const config = getOAuthConfig();
   if (!config) return '';
-  if (config.redirectUri) return config.redirectUri;
-  return guessRedirectUri(hostHeader, forwardedProto);
+  return config.redirectUri || '';
+}
+
+/**
+ * Tahmin (yalnızca hata ayıklamada kullanışlı; gönderilmez).
+ * Panel arkasında gerçek adresi görmek için loglayabilirsin.
+ */
+export function guessRedirectUri(hostHeader, forwardedProto) {
+  if (!hostHeader) return '';
+  const host = String(hostHeader).replace(/:\d+$/, '');
+  const protocol = forwardedProto || 'http';
+  return `${protocol}://${host}/auth/callback`;
 }
 
 /**

@@ -673,7 +673,17 @@ export function notFoundPage() {
   return `<h1>Sayfa bulunamadı</h1><p><a href="/">Ana sayfaya dön</a></p>`;
 }
 
-export function loginPage({ error, hasDiscordLink }) {
+export function loginPage({ error, hasDiscordLink, notes }) {
+  const noteHtml = (notes || []).length
+    ? `<div class="alert alert-warn">
+         ${notes.map((note, index) =>
+           note.startsWith('http')
+             ? `<pre>${esc(note)}</pre>`
+             : `<p style="margin:${index ? '8px' : '0'} 0 0">${esc(note)}</p>`
+         ).join('')}
+       </div>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -689,6 +699,7 @@ export function loginPage({ error, hasDiscordLink }) {
       <div class="brand-name">Guard Bot</div>
     </div>
     ${error ? `<div class="flash flash-error">${esc(error)}</div>` : ''}
+    ${noteHtml}
     ${hasDiscordLink
       ? '<a class="btn btn-primary btn-block btn-lg" href="/auth/login">Discord ile Giriş Yap</a>'
       : `<div class="alert alert-warn">
