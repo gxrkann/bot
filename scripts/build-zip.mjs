@@ -1,11 +1,17 @@
 /**
- * Discloud dağıtım paketi oluşturur.
+ * Discloud / bot-hosting dağıtım paketi oluşturur.
  *
- * Kullanım:  node scripts/build-zip.mjs
- * Çıktı:     dist/guard-bot.zip
+ * Kullanım:
+ *   node scripts/build-zip.mjs              → .env'siz paket (önerilen)
+ *   node scripts/build-zip.mjs --with-env   → .env dosyası da pakette
+ *
+ * Çıktı: dist/guard-bot.zip  (veya dist/guard-bot-with-env.zip)
  *
  * .discloudignore kurallarına göre dosyaları dışarıda bırakır ve ZIP'e paketler.
- * .env hiçbir zaman pakete girmez — token platforma sadece panelden girilir.
+ *
+ * GÜVENLİK: normal pakette .env HİÇBİR ZAMAN girmez; token platforma
+ * panelden girilir. --with-env yalnızca panelde ortam değişkeni
+ * ayarlanamıyorsa kullanılır ve ayrı bir dosya adıyla üretilir, karışmasın.
  */
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -15,6 +21,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, '..');
 const distDir = path.join(rootDir, 'dist');
+
+const WITH_ENV = process.argv.includes('--with-env');
 
 /* ------------------------------------------------------------------ *
  * .discloudignore okuma
@@ -184,9 +192,24 @@ async function main() {
   const patterns = await loadIgnorePatterns();
   const files = await collectFiles(patterns);
 
-  /* Güvenlik kontrolü: paket içinde .env olmamalı. */
+  /* .env dosyası .discloudignore'da olduğu için listede yok.
+     --with-env verildiyse elle ekliyoruz. */
+  if (WITH_ENV) {
+    const envPath = path.join(rootDir, '.env');
+    try {
+      await fsp.access(envPath);
+      files.push({ absolute: envPath, relative: '.env' });
+    } catch {
+      console.error('❌ --with-env verildi ama kökte .env dosyası yok.');
+      process.exit(1);
+    }
+  }
+
+  /* Güvenlik kontrolü: paket içinde .env olmamalı (izin verilmedikçe). */
   const leaked = files.filter((file) =>
-    /(^|\/)\.env($|\.)/.test(file.relative) && !file.relative.endsWith('.env.example')
+    /(^|\/)\.env($|\.)/.test(file.relative) &&
+    !file.relative.endsWith('.env.example') &&
+    !(WITH_ENV && file.relative === '.env')
   );
   if (leaked.length) {
     console.error('❌ Pakete sızması gereken dosya var, iptal ediliyor:');
@@ -206,12 +229,24 @@ async function main() {
     console.log(`   ${file.relative}`);
   }
 
-  const outputPath = path.join(distDir, 'guard-bot.zip');
+  const outputPath = path.join(distDir, WITH_ENV ? 'guard-bot-with-env.zip' : 'guard-bot.zip');
   const size = await createZip(files, outputPath);
 
   console.log(`\n✅ Hazır: ${path.relative(rootDir, outputPath)}`);
   console.log(`   boyut: ${(size / 1024).toFixed(1)} KB`);
   console.log(`   dosya sayısı: ${files.length}`);
+
+  if (WITH_ENV) {
+    console.log('\n📌 Bu pakette .env dosyası VAR (yalnızca panelde ortam');
+    console.log('   değişkeni ayarlayamıyorsan kullan). Panelde şunları yap:');
+    console.log('   1. ZIP dosyasını yükle');
+    console.log('   2. Restart');
+    console.log('   3. Yüklediğin ZIP dosyasını bilgisayarından SİL (token içeriyor)');
+    console.log('');
+    console.log('   Panelde ortam değişkeni girebiliyorsan normal ZIP\'i kullan,');
+    console.log('   bu pakete gerek yok.');
+    return;
+  }
 
   console.log('\n📌 Yükleme adımları:');
   console.log('   1. Bu ZIP dosyasını panele yükle (bot-hosting.net veya Render)');
@@ -224,12 +259,12 @@ async function main() {
   console.log('      DASHBOARD_ENABLED  = true');
   console.log('   3. Restart / Redeploy');
   console.log('');
-  console.log('   Not: .env dosyası pakete dahil değil (gizli anahtarlar depoya');
-  console.log('   gitmez). Panelden girmen gerekiyor.');
+  console.log('   Panelde ortam değişkeni ayarlayamıyorsan:');
+  console.log('      node scripts/build-zip.mjs --with-env');
+  console.log('   çalıştır, çıkan guard-bot-with-env.zip dosyasını yükle.');
   console.log('');
-  console.log('   Not: Bu ZIP eski koddu düzeltmek için yeniden üretildi.');
-  console.log('   Eğer konsolda "28 packages" görüyorsan @discordjs/voice kurulmamış');
-  console.log('   demektir; yeni ZIP 34 paket kuracak.');
+  console.log('   Not: .env dosyası bu pakete dahil değil (gizli anahtarlar');
+  console.log('   depoya gitmez). Panelden girmen gerekiyor.');
 }
 
 main().catch((error) => {
