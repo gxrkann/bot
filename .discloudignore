@@ -5,6 +5,11 @@
 node_modules/
 npm-debug.log*
 
+# Paketleme ciktilari: ZIP kendini icine almamali
+dist/
+build/
+out/
+
 # Gizli anahtarlar — ASLA gönderme
 .env
 .env.*

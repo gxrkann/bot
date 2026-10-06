@@ -211,14 +211,25 @@ async function main() {
 
   console.log(`\n✅ Hazır: ${path.relative(rootDir, outputPath)}`);
   console.log(`   boyut: ${(size / 1024).toFixed(1)} KB`);
+  console.log(`   dosya sayısı: ${files.length}`);
 
-  console.log('\n📌 Discloud\'da yapman gerekenler:');
-  console.log('   1. discloud.com/dashboard → Applications → + Upload → Upload ZIP');
-  console.log('   2. Bu ZIP dosyasını yükle');
-  console.log('   3. Ortam değişkenlerini panelde gir:');
-  console.log('      DISCORD_TOKEN, CLIENT_ID, GUILD_ID, OWNER_ID');
-  console.log('   4. Dashboard varsayılan olarak kapalı: DASHBOARD_ENABLED=false');
-  console.log('      (Discloud botlara dış port vermiyor)');
+  console.log('\n📌 Yükleme adımları:');
+  console.log('   1. Bu ZIP dosyasını panele yükle (bot-hosting.net veya Render)');
+  console.log('   2. Environment Variables bölümüne şunları gir:');
+  console.log('      DISCORD_TOKEN      = bot token\'ın');
+  console.log('      CLIENT_ID          = 1556800308422643802');
+  console.log('      GUILD_ID           = 1555388276779782214');
+  console.log('      OWNER_ID           = 281867375626813470');
+  console.log('      DASHBOARD_PASSWORD = gZ7Q2pLZ8oav');
+  console.log('      DASHBOARD_ENABLED  = true');
+  console.log('   3. Restart / Redeploy');
+  console.log('');
+  console.log('   Not: .env dosyası pakete dahil değil (gizli anahtarlar depoya');
+  console.log('   gitmez). Panelden girmen gerekiyor.');
+  console.log('');
+  console.log('   Not: Bu ZIP eski koddu düzeltmek için yeniden üretildi.');
+  console.log('   Eğer konsolda "28 packages" görüyorsan @discordjs/voice kurulmamış');
+  console.log('   demektir; yeni ZIP 34 paket kuracak.');
 }
 
 main().catch((error) => {
